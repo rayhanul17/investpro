@@ -1,0 +1,20 @@
+{
+  "ModuleId": "FlexCms.InvestPro",
+  "ModuleName": "InvestPro",
+  "Version": "1.0.0",
+  "Author": "",
+  "Email": "",
+  "Website": "",
+  "Category": "",
+  "Description": "",
+  "MinFrameworkVersion": "1.0.0",
+  "TablePrefix": "investpro",
+  "DependsOn": [],
+  "RequestedPermissions": [
+    "investpro.view",
+    "investpro.create",
+    "investpro.edit",
+    "investpro.delete"
+  ],
+  "RequestedCapabilities": []
+}

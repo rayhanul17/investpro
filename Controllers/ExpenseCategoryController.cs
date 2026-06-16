@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace FlexCms.InvestPro.Controllers;
 
-[Route("admin/investpro/expense-categories")]
+[Route("investpro/admin/expense-categories")]
 [FcmsAuthorize(InvestProPermissions.CategoryView)]
 public class ExpenseCategoryController : Controller
 {

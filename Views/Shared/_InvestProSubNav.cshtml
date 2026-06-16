@@ -1,0 +1,22 @@
+@{
+    var path = Context.Request.Path.Value ?? "";
+    bool IsActive(string prefix) => path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+
+    var tabs = new (string Url, string Label, string Icon)[]
+    {
+        ("/investpro/admin/partners",            "Partners",            "bi bi-people"),
+        ("/investpro/admin/expense-categories",  "Expense Categories",  "bi bi-tags"),
+        ("/investpro/admin/approval-config",     "Approval Config",     "bi bi-shield-check"),
+    };
+}
+
+<nav class="d-flex flex-wrap gap-1 py-2" aria-label="InvestPro sections">
+    @foreach (var t in tabs)
+    {
+        var cls = IsActive(t.Url) ? "btn btn-sm btn-primary" : "btn btn-sm btn-outline-secondary";
+        <a class="@cls" href="@t.Url">
+            <i class="@t.Icon"></i>
+            <span class="ms-1">@t.Label</span>
+        </a>
+    }
+</nav>

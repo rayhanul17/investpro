@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace FlexCms.InvestPro.Controllers;
 
-[Route("admin/investpro/partners")]
+[Route("investpro/admin/partners")]
 [FcmsAuthorize(InvestProPermissions.PartnerView)]
 public class PartnerController : Controller
 {

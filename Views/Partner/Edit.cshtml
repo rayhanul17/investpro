@@ -2,8 +2,8 @@
 @{
     var isNew = ViewData["IsNew"] as bool? ?? Model.Id == Guid.Empty;
     ViewData["Title"] = isNew ? "New Partner" : "Edit Partner";
-    Layout = "_AdminLayout";
-    var formAction = isNew ? "/admin/investpro/partners/create" : $"/admin/investpro/partners/{Model.Id}/edit";
+    Layout = "_InvestProLayout";
+    var formAction = isNew ? "/investpro/admin/partners/create" : $"/investpro/admin/partners/{Model.Id}/edit";
 }
 
 <div class="d-flex align-items-center mb-3 gap-2">

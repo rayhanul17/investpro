@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace FlexCms.InvestPro.Controllers;
 
-[Route("admin/investpro/approval-config")]
+[Route("investpro/admin/approval-config")]
 [FcmsAuthorize(InvestProPermissions.ApprovalConfigView)]
 public class ApprovalConfigController : Controller
 {

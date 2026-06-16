@@ -139,7 +139,7 @@ public class InvestProModule : BaseModule
         {
             DefaultName        = "InvestPro",
             Icon               = "bi bi-bank2",
-            Url                = "/admin/investpro/partners",
+            Url                = "/investpro/admin/partners",
             Order              = 500,
             RequiredPermission = InvestProPermissions.PartnerView,
         },

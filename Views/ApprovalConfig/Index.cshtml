@@ -1,7 +1,7 @@
 @model List<ApprovalConfig>
 @{
     ViewData["Title"] = "Approval Configuration";
-    Layout = "_AdminLayout";
+    Layout = "_InvestProLayout";
 }
 
 <div class="mb-3">
@@ -22,7 +22,7 @@
     <div class="alert alert-danger py-2">@err</div>
 }
 
-<form method="post" action="/admin/investpro/approval-config/save">
+<form method="post" action="/investpro/admin/approval-config/save">
     @Html.AntiForgeryToken()
     <div class="card shadow-sm">
         <div class="card-body p-0">

@@ -3,6 +3,7 @@ using System;
 using FlexCms.InvestPro.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace FlexCms.InvestPro.Migrations
 {
     [DbContext(typeof(InvestProDbContext))]
-    partial class InvestProDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260616184050_Phase2_Investments")]
+    partial class Phase2_Investments
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

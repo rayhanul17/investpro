@@ -1,0 +1,201 @@
+@model Investment
+@{
+    ViewData["Title"] = $"{Model.Code} — {Model.Name}";
+    Layout = "_InvestProLayout";
+    var contracts = ViewData["Partners"] as List<InvestmentPartner> ?? new();
+    var availablePartners = ViewData["AvailablePartners"] as List<Partner> ?? new();
+    var isDraft = Model.LifecycleStatus == InvestmentLifecycle.Draft;
+    decimal profitSum = contracts.Sum(c => c.ProfitSharePercent);
+    decimal lossSum   = contracts.Sum(c => c.LossSharePercent);
+    decimal totalCap  = contracts.Sum(c => c.AgreedCapital);
+    decimal totalLab  = contracts.Sum(c => c.AgreedLaborValue);
+}
+
+<div class="d-flex justify-content-between align-items-start mb-3 gap-2 flex-wrap">
+    <div>
+        <a asp-action="Index" class="btn btn-sm btn-outline-secondary mb-2">← Back to list</a>
+        <h4 class="mb-1">@Model.Code <span class="text-muted fw-normal">— @Model.Name</span></h4>
+        <div class="small text-muted">
+            Status:
+            @switch (Model.LifecycleStatus)
+            {
+                case InvestmentLifecycle.Draft:   <span class="badge text-bg-secondary">Draft</span>   break;
+                case InvestmentLifecycle.Active:  <span class="badge text-bg-success">Active</span>   break;
+                case InvestmentLifecycle.Closing: <span class="badge text-bg-warning">Closing</span>  break;
+                case InvestmentLifecycle.Closed:  <span class="badge text-bg-dark">Closed</span>      break;
+            }
+            <span class="ms-3">Started: @Model.StartDate.ToString("yyyy-MM-dd")</span>
+            @if (Model.ExpectedEndDate.HasValue) { <span class="ms-3">Expected end: @Model.ExpectedEndDate.Value.ToString("yyyy-MM-dd")</span> }
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        @if (isDraft)
+        {
+            <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
+            <form method="post" action="/investpro/admin/investments/@Model.Id/activate" class="d-inline">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-sm btn-success">
+                    <i class="bi bi-play-fill"></i> Activate
+                </button>
+            </form>
+        }
+    </div>
+</div>
+
+@if (TempData["Success"] is string ok) { <div class="alert alert-success py-2">@ok</div> }
+@if (TempData["Error"]   is string er) { <div class="alert alert-danger py-2">@er</div> }
+
+@if (!string.IsNullOrWhiteSpace(Model.Description))
+{
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+            <div class="text-muted small mb-1">Description</div>
+            <div>@Model.Description</div>
+        </div>
+    </div>
+}
+
+<div class="card shadow-sm mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Partner Contracts</strong>
+        <div class="small">
+            Profit sum: <span class="@(Math.Abs(profitSum - 100m) < 0.01m ? "text-success" : "text-danger") fw-medium">@profitSum.ToString("0.##")%</span>
+            <span class="mx-2 text-muted">|</span>
+            Loss sum: <span class="@(Math.Abs(lossSum - 100m) < 0.01m ? "text-success" : "text-danger") fw-medium">@lossSum.ToString("0.##")%</span>
+            <span class="mx-2 text-muted">|</span>
+            Capital: <span class="fw-medium">@totalCap.ToString("N2")</span>
+            <span class="mx-2 text-muted">|</span>
+            Labor value: <span class="fw-medium">@totalLab.ToString("N2")</span>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <table class="table mb-0 align-middle">
+            <thead class="table-light small">
+                <tr>
+                    <th>Partner</th>
+                    <th>Contract</th>
+                    <th>Role</th>
+                    <th class="text-end">Capital</th>
+                    <th class="text-end">Labor Value</th>
+                    <th class="text-end">Profit %</th>
+                    <th class="text-end">Loss %</th>
+                    @if (isDraft) { <th class="text-end" style="width:90px">Actions</th> }
+                </tr>
+            </thead>
+            <tbody>
+                @if (!contracts.Any())
+                {
+                    <tr><td colspan="@(isDraft ? 8 : 7)" class="text-center text-muted py-3">No partners yet. Use the form below to add one.</td></tr>
+                }
+                @foreach (var c in contracts)
+                {
+                    <tr>
+                        <td class="fw-medium">@(c.Partner?.Name ?? "—")</td>
+                        <td><span class="badge text-bg-info">@c.ContractType</span></td>
+                        <td><span class="badge text-bg-light text-dark">@c.PartnerRole</span></td>
+                        <td class="text-end">@c.AgreedCapital.ToString("N2")</td>
+                        <td class="text-end">@c.AgreedLaborValue.ToString("N2")</td>
+                        <td class="text-end">@c.ProfitSharePercent.ToString("0.##")%</td>
+                        <td class="text-end">@c.LossSharePercent.ToString("0.##")%</td>
+                        @if (isDraft)
+                        {
+                            <td class="text-end">
+                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                        data-fcms-action="delete"
+                                        data-url="/investpro/admin/investments/@Model.Id/partners/@c.Id/remove"
+                                        data-confirm-title="Remove partner?"
+                                        data-confirm-message="@(c.Partner?.Name ?? "this partner")"
+                                        data-confirm-variant="danger"
+                                        data-confirm-label="Remove">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (isDraft)
+{
+    <div class="card shadow-sm mb-3">
+        <div class="card-header"><strong>Add Partner Contract</strong></div>
+        <div class="card-body">
+            @if (!availablePartners.Any())
+            {
+                <div class="text-muted small">No more partners available. Either all partners are already assigned, or none are active in the global partner pool.</div>
+            }
+            else
+            {
+                <form method="post" action="/investpro/admin/investments/@Model.Id/partners/add">
+                    @Html.AntiForgeryToken()
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Partner <span class="text-danger">*</span></label>
+                            <select name="PartnerId" class="form-select" required>
+                                <option value="">— Select —</option>
+                                @foreach (var p in availablePartners)
+                                {
+                                    <option value="@p.Id">@p.Name @(string.IsNullOrEmpty(p.Phone) ? "" : $"({p.Phone})")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Contract Type</label>
+                            <select name="ContractType" class="form-select">
+                                @foreach (var t in Enum.GetValues<ContractType>())
+                                {
+                                    <option value="@t">@t</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Partner Role</label>
+                            <select name="PartnerRole" class="form-select">
+                                @foreach (var r in Enum.GetValues<PartnerRole>())
+                                {
+                                    <option value="@r">@r</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Capital (BDT)</label>
+                            <input name="AgreedCapital" type="number" step="0.01" min="0" class="form-control" value="0" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Labor Value (BDT)</label>
+                            <input name="AgreedLaborValue" type="number" step="0.01" min="0" class="form-control" value="0" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Profit %</label>
+                            <input name="ProfitSharePercent" type="number" step="0.01" min="0" max="100" class="form-control" value="0" required />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Loss %</label>
+                            <input name="LossSharePercent" type="number" step="0.01" min="0" max="100" class="form-control" value="0" required />
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Special Terms</label>
+                            <textarea name="SpecialTerms" class="form-control" rows="2" placeholder="Optional clauses or notes about this contract."></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg"></i> Add Partner</button>
+                    </div>
+                </form>
+            }
+        </div>
+    </div>
+
+    <div class="alert alert-info py-2 small">
+        <i class="bi bi-info-circle"></i>
+        <strong>Activation requirements:</strong>
+        Profit % and Loss % must each sum to exactly 100%.
+        Labor-only partners must have 0% loss share (Shariah rule).
+        After activation, the contract can no longer be edited.
+    </div>
+}

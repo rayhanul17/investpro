@@ -13,6 +13,8 @@ public class InvestProDbContext : DbContext
     public DbSet<Partner> Partners => Set<Partner>();
     public DbSet<ExpenseCategory> ExpenseCategories => Set<ExpenseCategory>();
     public DbSet<ApprovalConfig> ApprovalConfigs => Set<ApprovalConfig>();
+    public DbSet<Investment> Investments => Set<Investment>();
+    public DbSet<InvestmentPartner> InvestmentPartners => Set<InvestmentPartner>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -62,6 +64,37 @@ public class InvestProDbContext : DbContext
             e.Property(x => x.RequireAllPartnersAbove).HasColumnType("numeric(18,2)");
             e.Property(x => x.ApproverRole).HasConversion<string>().HasMaxLength(30).IsRequired();
             e.HasIndex(x => x.LedgerType).IsUnique();
+        });
+
+        modelBuilder.Entity<Investment>(e =>
+        {
+            e.Property(x => x.Code).HasMaxLength(40).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(2000);
+            e.Property(x => x.LifecycleStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.Notes).HasMaxLength(2000);
+            e.HasIndex(x => x.Code).IsUnique();
+            e.HasIndex(x => x.LifecycleStatus);
+            e.HasMany(x => x.PartnerContracts)
+             .WithOne(c => c.Investment!)
+             .HasForeignKey(c => c.InvestmentId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<InvestmentPartner>(e =>
+        {
+            e.Property(x => x.ContractType).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.PartnerRole).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.AgreedCapital).HasColumnType("numeric(18,2)");
+            e.Property(x => x.AgreedLaborValue).HasColumnType("numeric(18,2)");
+            e.Property(x => x.ProfitSharePercent).HasColumnType("numeric(7,4)");
+            e.Property(x => x.LossSharePercent).HasColumnType("numeric(7,4)");
+            e.Property(x => x.SpecialTerms).HasMaxLength(2000);
+            e.HasIndex(x => new { x.InvestmentId, x.PartnerId }).IsUnique();
+            e.HasOne(c => c.Partner!)
+             .WithMany()
+             .HasForeignKey(c => c.PartnerId)
+             .OnDelete(DeleteBehavior.Restrict);
         });
     }
 
@@ -119,4 +152,63 @@ public class ApprovalConfig : BaseEfEntity
     public decimal RequireApprovalAbove { get; set; }
     public decimal RequireAllPartnersAbove { get; set; }
     public ApproverRole ApproverRole { get; set; } = ApproverRole.Admin;
+}
+
+public enum InvestmentLifecycle
+{
+    Draft   = 1,
+    Active  = 2,
+    Closing = 3,
+    Closed  = 4,
+}
+
+public enum ContractType
+{
+    Mudarabah   = 1,
+    Musharakah  = 2,
+    LaborOnly   = 3,
+    Mixed       = 4,
+}
+
+public enum PartnerRole
+{
+    RabUlMal       = 1,
+    Mudarib        = 2,
+    WorkingPartner = 3,
+    SilentPartner  = 4,
+}
+
+public class Investment : BaseEfEntity
+{
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+    public InvestmentLifecycle LifecycleStatus { get; set; } = InvestmentLifecycle.Draft;
+    public DateTime StartDate { get; set; }
+    public DateTime? ExpectedEndDate { get; set; }
+    public DateTime? ActivatedAt { get; set; }
+    public DateTime? ClosedAt { get; set; }
+    public string? Notes { get; set; }
+
+    public List<InvestmentPartner> PartnerContracts { get; set; } = [];
+}
+
+public class InvestmentPartner : BaseEfEntity
+{
+    public Guid InvestmentId { get; set; }
+    public Investment? Investment { get; set; }
+
+    public Guid PartnerId { get; set; }
+    public Partner? Partner { get; set; }
+
+    public ContractType ContractType { get; set; } = ContractType.Musharakah;
+    public PartnerRole PartnerRole { get; set; } = PartnerRole.WorkingPartner;
+
+    public decimal AgreedCapital { get; set; }
+    public decimal AgreedLaborValue { get; set; }
+    public decimal ProfitSharePercent { get; set; }
+    public decimal LossSharePercent { get; set; }
+
+    public DateTime JoinedDate { get; set; }
+    public string? SpecialTerms { get; set; }
 }

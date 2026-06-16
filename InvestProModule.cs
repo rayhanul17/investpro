@@ -139,9 +139,9 @@ public class InvestProModule : BaseModule
         {
             DefaultName        = "InvestPro",
             Icon               = "bi bi-bank2",
-            Url                = "/investpro/admin/partners",
+            Url                = "/investpro/admin/investments",
             Order              = 500,
-            RequiredPermission = InvestProPermissions.PartnerView,
+            RequiredPermission = InvestProPermissions.InvestmentView,
         },
     ];
 
@@ -159,6 +159,12 @@ public class InvestProModule : BaseModule
 
         new(InvestProPermissions.ApprovalConfigViewKey,    "View approval configuration",  "InvestPro"),
         new(InvestProPermissions.ApprovalConfigEditKey,    "Edit approval configuration",  "InvestPro"),
+
+        new(InvestProPermissions.InvestmentViewKey,        "View investments",             "InvestPro"),
+        new(InvestProPermissions.InvestmentCreateKey,      "Create investments",           "InvestPro"),
+        new(InvestProPermissions.InvestmentEditKey,        "Edit investments",             "InvestPro"),
+        new(InvestProPermissions.InvestmentDeleteKey,      "Delete investments",           "InvestPro"),
+        new(InvestProPermissions.InvestmentActivateKey,    "Activate investments",         "InvestPro"),
     ];
 }
 
@@ -177,6 +183,12 @@ public static class InvestProPermissions
     public const string ApprovalConfigViewKey = "approval-config.view";
     public const string ApprovalConfigEditKey = "approval-config.edit";
 
+    public const string InvestmentViewKey     = "investment.view";
+    public const string InvestmentCreateKey   = "investment.create";
+    public const string InvestmentEditKey     = "investment.edit";
+    public const string InvestmentDeleteKey   = "investment.delete";
+    public const string InvestmentActivateKey = "investment.activate";
+
     private const string P = "flexcms.investpro.";
 
     public const string PartnerView   = P + PartnerViewKey;
@@ -191,4 +203,10 @@ public static class InvestProPermissions
 
     public const string ApprovalConfigView = P + ApprovalConfigViewKey;
     public const string ApprovalConfigEdit = P + ApprovalConfigEditKey;
+
+    public const string InvestmentView     = P + InvestmentViewKey;
+    public const string InvestmentCreate   = P + InvestmentCreateKey;
+    public const string InvestmentEdit     = P + InvestmentEditKey;
+    public const string InvestmentDelete   = P + InvestmentDeleteKey;
+    public const string InvestmentActivate = P + InvestmentActivateKey;
 }

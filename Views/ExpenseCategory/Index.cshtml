@@ -1,0 +1,88 @@
+@model List<ExpenseCategory>
+@{
+    ViewData["Title"] = "Expense Categories";
+    Layout = "_AdminLayout";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h4 class="mb-0">Expense Categories</h4>
+        <small class="text-muted">Master list of expense categories. System categories cannot be deleted but can be deactivated.</small>
+    </div>
+    <a asp-action="Create" class="btn btn-primary btn-sm">
+        <i class="bi bi-plus-lg"></i> New Category
+    </a>
+</div>
+
+@if (TempData["Success"] is string ok)
+{
+    <div class="alert alert-success py-2">@ok</div>
+}
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:60px">Order</th>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th style="width:90px">Type</th>
+                    <th style="width:90px">Status</th>
+                    <th class="text-end" style="width:160px">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr><td colspan="6" class="text-center text-muted py-4">No categories yet.</td></tr>
+                }
+                @foreach (var c in Model)
+                {
+                    <tr data-row-id="@c.Id">
+                        <td class="text-muted small">@c.SortOrder</td>
+                        <td class="fw-medium">@c.Name</td>
+                        <td class="text-muted">@(c.Description?.Length > 80 ? c.Description[..80] + "…" : c.Description)</td>
+                        <td>
+                            @if (c.IsSystem)
+                            {
+                                <span class="badge text-bg-warning"><i class="bi bi-lock"></i> System</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-bg-info">Custom</span>
+                            }
+                        </td>
+                        <td>
+                            @if (c.IsActive)
+                            {
+                                <span class="badge text-bg-success">Active</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-bg-secondary">Inactive</span>
+                            }
+                        </td>
+                        <td class="text-end">
+                            <a asp-action="Edit" asp-route-id="@c.Id" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            @if (!c.IsSystem)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                        data-fcms-action="delete"
+                                        data-url="/admin/investpro/expense-categories/@c.Id/delete"
+                                        data-confirm-title="Delete category?"
+                                        data-confirm-message="@c.Name"
+                                        data-confirm-variant="danger"
+                                        data-confirm-label="Delete">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

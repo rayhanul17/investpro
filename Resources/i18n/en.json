@@ -1,8 +1,15 @@
 {
   "investpro.title": "InvestPro",
-  "investpro.create": "Create InvestPro",
-  "investpro.edit": "Edit InvestPro",
-  "investpro.delete": "Delete InvestPro",
-  "investpro.published": "Published",
-  "investpro.draft": "Draft"
+  "investpro.tagline": "Islamic Invest, Barakah Invest",
+  "investpro.partners": "Partners",
+  "investpro.partner.new": "New Partner",
+  "investpro.partner.edit": "Edit Partner",
+  "investpro.categories": "Expense Categories",
+  "investpro.category.new": "New Category",
+  "investpro.category.edit": "Edit Category",
+  "investpro.approval-config": "Approval Configuration",
+  "investpro.active": "Active",
+  "investpro.inactive": "Inactive",
+  "investpro.system": "System",
+  "investpro.custom": "Custom"
 }

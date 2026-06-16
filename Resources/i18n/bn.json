@@ -1,8 +1,15 @@
 {
   "investpro.title": "InvestPro",
-  "investpro.create": "নতুন InvestPro",
-  "investpro.edit": "সম্পাদনা InvestPro",
-  "investpro.delete": "মুছুন InvestPro",
-  "investpro.published": "প্রকাশিত",
-  "investpro.draft": "খসড়া"
+  "investpro.tagline": "ইসলামিক বিনিয়োগ, বরকতময় বিনিয়োগ",
+  "investpro.partners": "শরিক / অংশীদার",
+  "investpro.partner.new": "নতুন শরিক",
+  "investpro.partner.edit": "শরিক সম্পাদনা",
+  "investpro.categories": "খরচের ক্যাটাগরি",
+  "investpro.category.new": "নতুন ক্যাটাগরি",
+  "investpro.category.edit": "ক্যাটাগরি সম্পাদনা",
+  "investpro.approval-config": "অনুমোদন কনফিগারেশন",
+  "investpro.active": "সক্রিয়",
+  "investpro.inactive": "নিষ্ক্রিয়",
+  "investpro.system": "সিস্টেম",
+  "investpro.custom": "কাস্টম"
 }

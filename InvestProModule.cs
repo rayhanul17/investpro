@@ -6,23 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace FlexCms.InvestPro;
 
-/// <summary>
-/// Module entry point. Inherits no-op lifecycle defaults from <see cref="BaseModule"/>
-/// and overrides only what the module needs.
-///
-/// <para>
-/// Activation order on every host startup (see ModuleActivationService):
-/// 1. <see cref="RegisterServices"/> — DI registration
-/// 2. <see cref="CreateMigrationContext"/> → <c>Database.MigrateAsync()</c>
-/// 3. Permissions seeded from <see cref="GetPermissions"/>
-/// 4. Menu items seeded from <see cref="GetMenuItems"/>
-/// 5. <see cref="SeedDataAsync"/> — first activation only
-/// 6. <see cref="OnUpgradeAsync"/> — when version changes
-/// </para>
-/// </summary>
 public class InvestProModule : BaseModule
 {
-    /// <summary>Compile-time constant for callers (controllers, services) that need to pass this module id to LogAsync etc.</summary>
     public const string ModuleIdValue = "FlexCms.InvestPro";
 
     public override string ModuleId    => ModuleIdValue;
@@ -32,9 +17,6 @@ public class InvestProModule : BaseModule
 
     public override void RegisterServices(IServiceCollection services)
     {
-        // Anything marked [FcmsScoped] / [FcmsSingleton] / [FcmsHostedService] in this
-        // assembly is auto-registered by AttributeScanner — no manual line needed.
-        // Use this hook for typed HttpClients, options binding, or third-party libraries.
     }
 
     public override DbContext? CreateMigrationContext(string connectionString, string provider)
@@ -57,42 +39,89 @@ public class InvestProModule : BaseModule
 
     public override async Task SeedDataAsync(IServiceProvider sp, CancellationToken ct = default)
     {
-        // Module DbContexts aren't auto-registered in host DI — construct the
-        // same context the framework used to run migrations, so the seed lives
-        // on the exact schema we just applied. Idempotent: only runs when
-        // FcmsModuleRecord.SeedCompleted is false.
         var opts = sp.GetRequiredService<ModuleActivationOptions>();
         var ctx = CreateMigrationContext(opts.ConnectionString, opts.Provider) as InvestProDbContext;
         if (ctx is null) return;
         await using (ctx)
         {
-            // Don't crash on first run if the developer hasn't generated migrations yet —
-            // surface a helpful message in the logs and skip. After `dotnet ef migrations
-            // add InitialSchema` + restart, this branch is skipped and the real seed runs.
             if (!await ctx.Database.CanConnectAsync(ct)) return;
-            var tables = await ctx.Database.GetAppliedMigrationsAsync(ct);
-            if (!tables.Any())
+            var applied = await ctx.Database.GetAppliedMigrationsAsync(ct);
+            if (!applied.Any())
             {
                 Console.WriteLine($"[{ModuleId}] No EF migrations found — run `dotnet ef migrations add InitialSchema` to enable seeding.");
                 return;
             }
 
-            if (!await ctx.Items.AnyAsync(ct))
-            {
-                ctx.Items.Add(new InvestProItem
-                {
-                    Title = "Welcome",
-                    Description = "Edit or delete this sample row."
-                });
-                await ctx.SaveChangesAsync(ct);
-            }
+            await SeedExpenseCategoriesAsync(ctx, ct);
+            await SeedApprovalConfigsAsync(ctx, ct);
         }
+    }
+
+    private static async Task SeedExpenseCategoriesAsync(InvestProDbContext ctx, CancellationToken ct)
+    {
+        if (await ctx.ExpenseCategories.AnyAsync(ct)) return;
+
+        var defaults = new (string Name, string Desc, int Order)[]
+        {
+            ("Product/Inventory", "Goods purchased for the investment activity.", 10),
+            ("Transportation",   "Truck, courier, fuel, intra-city travel.",     20),
+            ("Legal & Compliance","Trade license, lawyer fees, government filings.", 30),
+            ("Rent",             "Warehouse, office, shop rent.",                  40),
+            ("Salary & Wages",   "Worker pay and stipends.",                       50),
+            ("Utility",          "Electricity, gas, water, internet.",             60),
+            ("Marketing",        "Ads, promotions, branding.",                     70),
+            ("Office Supplies",  "Stationery, packaging, small equipment.",        80),
+            ("Repair & Maintenance","Servicing, tools, machine upkeep.",            90),
+            ("Tax & Govt Fees",  "Income tax, VAT, licensing renewals.",          100),
+            ("Bank Charges",     "Transaction fees, MFS charges.",                110),
+            ("Insurance",        "Asset and shipment insurance.",                 120),
+            ("Others",           "Anything that does not fit other categories.",  999),
+        };
+
+        foreach (var (name, desc, order) in defaults)
+        {
+            ctx.ExpenseCategories.Add(new ExpenseCategory
+            {
+                Id          = Guid.NewGuid(),
+                Name        = name,
+                Description = desc,
+                IsSystem    = true,
+                IsActive    = true,
+                SortOrder   = order,
+            });
+        }
+        await ctx.SaveChangesAsync(ct);
+    }
+
+    private static async Task SeedApprovalConfigsAsync(InvestProDbContext ctx, CancellationToken ct)
+    {
+        if (await ctx.ApprovalConfigs.AnyAsync(ct)) return;
+
+        var defaults = new (LedgerKind L, decimal AutoBelow, decimal RequireAbove, decimal AllPartnersAbove, ApproverRole Role)[]
+        {
+            (LedgerKind.Expense, 5_000m,   5_000m,   50_000m,  ApproverRole.LeadPartner),
+            (LedgerKind.Revenue, 10_000m,  10_000m,  100_000m, ApproverRole.LeadPartner),
+            (LedgerKind.Capital, 0m,       0m,       0m,       ApproverRole.AllPartners),
+            (LedgerKind.Labor,   0m,       0m,       0m,       ApproverRole.LeadPartner),
+        };
+
+        foreach (var (l, autoBelow, reqAbove, allAbove, role) in defaults)
+        {
+            ctx.ApprovalConfigs.Add(new ApprovalConfig
+            {
+                Id                      = Guid.NewGuid(),
+                LedgerType              = l,
+                AutoApproveBelow        = autoBelow,
+                RequireApprovalAbove    = reqAbove,
+                RequireAllPartnersAbove = allAbove,
+                ApproverRole            = role,
+            });
+        }
+        await ctx.SaveChangesAsync(ct);
     }
 
     public override async Task OnUpgradeAsync(string fromVersion, IServiceProvider sp, CancellationToken ct = default)
     {
-        // Called once when the module record's Version differs from the manifest version.
-        // Use for data backfills tied to a specific upgrade path.
         await Task.CompletedTask;
     }
 
@@ -108,38 +137,58 @@ public class InvestProModule : BaseModule
     [
         new FcmsMenuItemDef
         {
-            DefaultName = "InvestPro",
-            Icon = "bi bi-box",
-            Url = "/admin/investpro",
-            Order = 500,
-            RequiredPermission = InvestProPermissions.View
-        }
+            DefaultName        = "InvestPro",
+            Icon               = "bi bi-bank2",
+            Url                = "/admin/investpro/partners",
+            Order              = 500,
+            RequiredPermission = InvestProPermissions.PartnerView,
+        },
     ];
 
     public override List<FcmsPermissionDef> GetPermissions() =>
     [
-        new(InvestProPermissions.ViewKey,   "View InvestPro items",   "InvestPro"),
-        new(InvestProPermissions.CreateKey, "Create InvestPro items", "InvestPro"),
-        new(InvestProPermissions.EditKey,   "Edit InvestPro items",   "InvestPro"),
-        new(InvestProPermissions.DeleteKey, "Delete InvestPro items", "InvestPro"),
+        new(InvestProPermissions.PartnerViewKey,           "View partners",                "InvestPro"),
+        new(InvestProPermissions.PartnerCreateKey,         "Create partners",              "InvestPro"),
+        new(InvestProPermissions.PartnerEditKey,           "Edit partners",                "InvestPro"),
+        new(InvestProPermissions.PartnerDeleteKey,         "Delete partners",              "InvestPro"),
+
+        new(InvestProPermissions.CategoryViewKey,          "View expense categories",      "InvestPro"),
+        new(InvestProPermissions.CategoryCreateKey,        "Create expense categories",    "InvestPro"),
+        new(InvestProPermissions.CategoryEditKey,          "Edit expense categories",      "InvestPro"),
+        new(InvestProPermissions.CategoryDeleteKey,        "Delete expense categories",    "InvestPro"),
+
+        new(InvestProPermissions.ApprovalConfigViewKey,    "View approval configuration",  "InvestPro"),
+        new(InvestProPermissions.ApprovalConfigEditKey,    "Edit approval configuration",  "InvestPro"),
     ];
 }
 
-/// <summary>
-/// Permission key constants. ModuleActivationService prefixes each
-/// <see cref="FcmsPermissionDef.Key"/> with <c>{ModuleId}.</c> (lowercase) on seed,
-/// so the keys stored in fcms_permissions and checked at runtime end up as
-/// <c>flexcms.investpro.investpro.view</c> etc.
-/// </summary>
 public static class InvestProPermissions
 {
-    public const string ViewKey   = "investpro.view";
-    public const string CreateKey = "investpro.create";
-    public const string EditKey   = "investpro.edit";
-    public const string DeleteKey = "investpro.delete";
+    public const string PartnerViewKey   = "partner.view";
+    public const string PartnerCreateKey = "partner.create";
+    public const string PartnerEditKey   = "partner.edit";
+    public const string PartnerDeleteKey = "partner.delete";
 
-    public const string View   = "flexcms.investpro." + ViewKey;
-    public const string Create = "flexcms.investpro." + CreateKey;
-    public const string Edit   = "flexcms.investpro." + EditKey;
-    public const string Delete = "flexcms.investpro." + DeleteKey;
+    public const string CategoryViewKey   = "category.view";
+    public const string CategoryCreateKey = "category.create";
+    public const string CategoryEditKey   = "category.edit";
+    public const string CategoryDeleteKey = "category.delete";
+
+    public const string ApprovalConfigViewKey = "approval-config.view";
+    public const string ApprovalConfigEditKey = "approval-config.edit";
+
+    private const string P = "flexcms.investpro.";
+
+    public const string PartnerView   = P + PartnerViewKey;
+    public const string PartnerCreate = P + PartnerCreateKey;
+    public const string PartnerEdit   = P + PartnerEditKey;
+    public const string PartnerDelete = P + PartnerDeleteKey;
+
+    public const string CategoryView   = P + CategoryViewKey;
+    public const string CategoryCreate = P + CategoryCreateKey;
+    public const string CategoryEdit   = P + CategoryEditKey;
+    public const string CategoryDelete = P + CategoryDeleteKey;
+
+    public const string ApprovalConfigView = P + ApprovalConfigViewKey;
+    public const string ApprovalConfigEdit = P + ApprovalConfigEditKey;
 }

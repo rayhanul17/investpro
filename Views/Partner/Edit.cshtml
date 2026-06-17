@@ -113,3 +113,31 @@
         <a asp-action="Index" class="btn btn-outline-secondary ms-2">Cancel</a>
     </div>
 </form>
+
+@if (!isNew)
+{
+    var attachments = ViewData["Attachments"] as List<LedgerAttachment> ?? new();
+    var files = attachments.Select(a => new {
+        a.Id,
+        Url = a.FilePath,
+        a.FileName,
+        a.FileType,
+        a.FileSize,
+    }).ToList();
+
+    <div class="mt-4">
+        @await Html.PartialAsync("_FcmsUploader", new {
+            Id = "partner-docs-" + Model.Id,
+            UploadUrl = $"/investpro/admin/partners/{Model.Id}/attachments/upload",
+            DeleteUrlTemplate = "/investpro/admin/partners/attachments/{id}/delete",
+            ExistingFiles = files,
+            Multi = true,
+            AcceptMime = "image/*,application/pdf",
+            EnableCamera = true,
+            Compress = true,
+            MaxSizeMb = 10,
+            MaxCount = 20,
+            ListTitle = "KYC / Documents (NID, photo, agreements)",
+        })
+    </div>
+}

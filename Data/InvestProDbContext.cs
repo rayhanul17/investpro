@@ -181,11 +181,13 @@ public class InvestProDbContext : DbContext
 
         modelBuilder.Entity<LedgerAttachment>(e =>
         {
-            e.Property(x => x.LedgerType).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.OwnerType).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.LedgerType).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.FilePath).HasMaxLength(500).IsRequired();
             e.Property(x => x.FileName).HasMaxLength(255).IsRequired();
             e.Property(x => x.FileType).HasMaxLength(100);
             e.Property(x => x.AttachmentLabel).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.HasIndex(x => new { x.OwnerType, x.OwnerId });
             e.HasIndex(x => new { x.LedgerType, x.LedgerEntryId });
         });
 
@@ -484,10 +486,34 @@ public class Revenue : LedgerEntryBase
     public string? InvoiceNo { get; set; }
 }
 
+public enum AttachmentOwnerType
+{
+    Partner    = 1,
+    Investment = 2,
+    Capital    = 3,
+    Labor      = 4,
+    Expense    = 5,
+    Revenue    = 6,
+}
+
+/// <summary>
+/// Polymorphic attachment row. Files for partner KYC documents, ledger
+/// entries, and (future) investment-level files all live in this single
+/// table — owner is identified by the (<see cref="OwnerType"/>,
+/// <see cref="OwnerId"/>) pair. The legacy LedgerType field is kept and
+/// auto-populated for ledger-kind owners so existing reports keep working.
+/// </summary>
 public class LedgerAttachment : BaseEfEntity
 {
-    public LedgerKind LedgerType { get; set; }
-    public Guid LedgerEntryId { get; set; }
+    public AttachmentOwnerType OwnerType { get; set; }
+    public Guid OwnerId { get; set; }
+
+    /// <summary>Mirrors OwnerType when OwnerType is Capital/Labor/Expense/Revenue. Null when OwnerType is Partner or Investment.</summary>
+    public LedgerKind? LedgerType { get; set; }
+
+    /// <summary>Same as OwnerId when OwnerType is a ledger kind. Kept for query-shape backwards compatibility.</summary>
+    public Guid? LedgerEntryId { get; set; }
+
     public string FilePath { get; set; } = "";
     public string FileName { get; set; } = "";
     public string? FileType { get; set; }

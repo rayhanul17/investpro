@@ -1,10 +1,10 @@
 using FlexCms.Framework.Modules;
 using FlexCms.Framework.Modules.Attributes;
+using FlexCms.Framework.Storage;
 using FlexCms.InvestPro.Data;
-using EntityStatus = FlexCms.Framework.Db.EntityStatus;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using EntityStatus = FlexCms.Framework.Db.EntityStatus;
 
 namespace FlexCms.InvestPro.Services;
 
@@ -12,32 +12,59 @@ namespace FlexCms.InvestPro.Services;
 public class AttachmentService
 {
     private readonly ModuleActivationOptions _opts;
-    private readonly IWebHostEnvironment _env;
+    private readonly IFcmsFileUploadService _uploader;
 
-    public AttachmentService(ModuleActivationOptions opts, IWebHostEnvironment env)
+    public AttachmentService(ModuleActivationOptions opts, IFcmsFileUploadService uploader)
     {
         _opts = opts;
-        _env = env;
+        _uploader = uploader;
     }
 
     private InvestProDbContext OpenDb() =>
         (InvestProDbContext)new InvestProModule().CreateMigrationContext(_opts.ConnectionString, _opts.Provider)!;
 
     public const long MaxFileSize = 10 * 1024 * 1024; // 10 MB
-    public const int MaxFilesPerEntry = 20;
+    public const int MaxFilesPerOwner = 20;
 
-    public string GetUploadRoot(Guid investmentId, LedgerKind kind) =>
-        Path.Combine(_env.WebRootPath, "uploads", "investpro",
-                     investmentId.ToString("N"), kind.ToString().ToLower());
+    private static LedgerKind? LedgerKindFor(AttachmentOwnerType owner) => owner switch
+    {
+        AttachmentOwnerType.Capital => LedgerKind.Capital,
+        AttachmentOwnerType.Labor   => LedgerKind.Labor,
+        AttachmentOwnerType.Expense => LedgerKind.Expense,
+        AttachmentOwnerType.Revenue => LedgerKind.Revenue,
+        _ => null,
+    };
 
-    public async Task<List<LedgerAttachment>> GetForEntryAsync(LedgerKind kind, Guid entryId, CancellationToken ct = default)
+    private static string FolderFor(AttachmentOwnerType owner) => owner switch
+    {
+        AttachmentOwnerType.Partner    => "investpro/partners",
+        AttachmentOwnerType.Investment => "investpro/investments",
+        AttachmentOwnerType.Capital    => "investpro/capital",
+        AttachmentOwnerType.Labor      => "investpro/labor",
+        AttachmentOwnerType.Expense    => "investpro/expenses",
+        AttachmentOwnerType.Revenue    => "investpro/revenues",
+        _ => "investpro/misc",
+    };
+
+    public async Task<List<LedgerAttachment>> GetForOwnerAsync(AttachmentOwnerType ownerType, Guid ownerId, CancellationToken ct = default)
     {
         await using var db = OpenDb();
         return await db.LedgerAttachments
-            .Where(x => x.LedgerType == kind && x.LedgerEntryId == entryId && x.Status != EntityStatus.Deleted)
+            .Where(x => x.OwnerType == ownerType && x.OwnerId == ownerId && x.Status != EntityStatus.Deleted)
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(ct);
     }
+
+    // ── Back-compat shim for ledger-entry-only callers ──────────────────
+    public Task<List<LedgerAttachment>> GetForEntryAsync(LedgerKind kind, Guid entryId, CancellationToken ct = default)
+        => GetForOwnerAsync(kind switch
+        {
+            LedgerKind.Capital => AttachmentOwnerType.Capital,
+            LedgerKind.Labor   => AttachmentOwnerType.Labor,
+            LedgerKind.Expense => AttachmentOwnerType.Expense,
+            LedgerKind.Revenue => AttachmentOwnerType.Revenue,
+            _ => AttachmentOwnerType.Investment,
+        }, entryId, ct);
 
     public async Task<LedgerAttachment?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
@@ -46,47 +73,60 @@ public class AttachmentService
     }
 
     public async Task<(bool ok, string? error, LedgerAttachment? saved)> UploadAsync(
-        Guid investmentId, LedgerKind kind, Guid entryId,
-        IFormFile file, AttachmentLabel label, CancellationToken ct = default)
+        AttachmentOwnerType ownerType, Guid ownerId,
+        IFormFile file, AttachmentLabel label,
+        CancellationToken ct = default)
     {
-        if (file is null || file.Length == 0)
-            return (false, "No file uploaded.", null);
-        if (file.Length > MaxFileSize)
-            return (false, $"File too large. Max {MaxFileSize / 1024 / 1024} MB.", null);
+        if (file is null || file.Length == 0) return (false, "No file uploaded.", null);
+        if (file.Length > MaxFileSize) return (false, $"File too large. Max {MaxFileSize / 1024 / 1024} MB.", null);
 
         await using var db = OpenDb();
         var existing = await db.LedgerAttachments.CountAsync(
-            x => x.LedgerType == kind && x.LedgerEntryId == entryId && x.Status != EntityStatus.Deleted, ct);
-        if (existing >= MaxFilesPerEntry)
-            return (false, $"Maximum {MaxFilesPerEntry} files per entry reached.", null);
+            x => x.OwnerType == ownerType && x.OwnerId == ownerId && x.Status != EntityStatus.Deleted, ct);
+        if (existing >= MaxFilesPerOwner)
+            return (false, $"Maximum {MaxFilesPerOwner} files per owner reached.", null);
 
-        var folder = GetUploadRoot(investmentId, kind);
-        Directory.CreateDirectory(folder);
-
-        var safeName = Path.GetFileNameWithoutExtension(file.FileName);
-        var ext = Path.GetExtension(file.FileName);
-        var uniqueName = $"{DateTime.UtcNow:yyyyMMddHHmmss}_{Guid.NewGuid():N}{ext}";
-        var fullPath = Path.Combine(folder, uniqueName);
-        var relativeUrl = $"/uploads/investpro/{investmentId:N}/{kind.ToString().ToLower()}/{uniqueName}";
-
-        await using (var fs = new FileStream(fullPath, FileMode.Create))
-            await file.CopyToAsync(fs, ct);
+        var compress = new ImageCompressionOptions(); // defaults
+        UploadResult result;
+        try
+        {
+            result = await _uploader.SaveAsync(file, FolderFor(ownerType), compress, ct);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Upload failed: {ex.Message}", null);
+        }
 
         var row = new LedgerAttachment
         {
             Id = Guid.NewGuid(),
-            LedgerType = kind,
-            LedgerEntryId = entryId,
-            FilePath = relativeUrl,
-            FileName = Path.GetFileName(file.FileName),
-            FileType = file.ContentType,
-            FileSize = file.Length,
+            OwnerType = ownerType,
+            OwnerId = ownerId,
+            LedgerType = LedgerKindFor(ownerType),
+            LedgerEntryId = LedgerKindFor(ownerType) is null ? null : ownerId,
+            FilePath = result.PublicUrl,
+            FileName = file.FileName,
+            FileType = result.ContentType,
+            FileSize = result.FileSize,
             AttachmentLabel = label,
         };
         db.LedgerAttachments.Add(row);
         await db.SaveChangesAsync(ct);
         return (true, null, row);
     }
+
+    /// <summary>Legacy ledger-kind upload — wraps the polymorphic path.</summary>
+    public Task<(bool ok, string? error, LedgerAttachment? saved)> UploadAsync(
+        Guid investmentId, LedgerKind kind, Guid entryId,
+        IFormFile file, AttachmentLabel label, CancellationToken ct = default)
+        => UploadAsync(kind switch
+        {
+            LedgerKind.Capital => AttachmentOwnerType.Capital,
+            LedgerKind.Labor   => AttachmentOwnerType.Labor,
+            LedgerKind.Expense => AttachmentOwnerType.Expense,
+            LedgerKind.Revenue => AttachmentOwnerType.Revenue,
+            _ => AttachmentOwnerType.Investment,
+        }, entryId, file, label, ct);
 
     public async Task<(bool ok, string? error, LedgerAttachment? deleted)> DeleteAsync(Guid id, CancellationToken ct = default)
     {
@@ -98,12 +138,8 @@ public class AttachmentService
         row.DeletedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
-        try
-        {
-            var physical = Path.Combine(_env.WebRootPath, row.FilePath.TrimStart('/'));
-            if (File.Exists(physical)) File.Delete(physical);
-        }
-        catch { /* ignore filesystem cleanup errors — soft-delete still wins */ }
+        try { await _uploader.DeleteAsync(row.FilePath.TrimStart('/'), ct); }
+        catch { /* best-effort */ }
 
         return (true, null, row);
     }

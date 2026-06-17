@@ -2,6 +2,7 @@ using FlexCms.Framework.Auth;
 using FlexCms.Framework.Cms;
 using FlexCms.InvestPro.Data;
 using FlexCms.InvestPro.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FlexCms.InvestPro.Controllers;
@@ -11,11 +12,13 @@ namespace FlexCms.InvestPro.Controllers;
 public class PartnerController : Controller
 {
     private readonly PartnerService _service;
+    private readonly AttachmentService _attachments;
     private readonly IFcmsLogService _log;
 
-    public PartnerController(PartnerService service, IFcmsLogService log)
+    public PartnerController(PartnerService service, AttachmentService attachments, IFcmsLogService log)
     {
         _service = service;
+        _attachments = attachments;
         _log = log;
     }
 
@@ -52,6 +55,7 @@ public class PartnerController : Controller
     {
         var row = await _service.GetByIdAsync(id, ct);
         if (row is null) return NotFound();
+        ViewData["Attachments"] = await _attachments.GetForOwnerAsync(AttachmentOwnerType.Partner, id, ct);
         return View(row);
     }
 
@@ -81,6 +85,46 @@ public class PartnerController : Controller
         await _log.LogAsync("investpro.partner.delete", nameof(Partner), id.ToString(),
             value: deleted, module: InvestProModule.ModuleIdValue, ct: ct);
         return Json(new { isSuccess = true, message = "Deleted." });
+    }
+
+    // ── Polymorphic attachment endpoints used by _FcmsUploader ─────────
+
+    [HttpPost("{id:guid}/attachments/upload")]
+    [ValidateAntiForgeryToken]
+    [FcmsAuthorize(InvestProPermissions.PartnerEdit)]
+    [RequestSizeLimit(50 * 1024 * 1024)]
+    public async Task<IActionResult> UploadAttachment(Guid id, IFormFile file, CancellationToken ct)
+    {
+        var partner = await _service.GetByIdAsync(id, ct);
+        if (partner is null) return Json(new { isSuccess = false, message = "Partner not found." });
+
+        var (ok, error, saved) = await _attachments.UploadAsync(
+            AttachmentOwnerType.Partner, id, file, AttachmentLabel.Document, ct);
+        if (!ok) return Json(new { isSuccess = false, message = error ?? "Upload failed." });
+
+        await _log.LogAsync("investpro.partner.attachment-upload", nameof(LedgerAttachment), saved!.Id.ToString(),
+            value: new { partnerId = id, saved.FileName, saved.FileSize }, module: InvestProModule.ModuleIdValue, ct: ct);
+
+        return Json(new
+        {
+            isSuccess = true,
+            id = saved.Id,
+            url = saved.FilePath,
+            fileName = saved.FileName,
+            size = saved.FileSize,
+        });
+    }
+
+    [HttpPost("attachments/{aid:guid}/delete")]
+    [ValidateAntiForgeryToken]
+    [FcmsAuthorize(InvestProPermissions.PartnerEdit)]
+    public async Task<IActionResult> DeleteAttachment(Guid aid, CancellationToken ct)
+    {
+        var (ok, error, deleted) = await _attachments.DeleteAsync(aid, ct);
+        if (!ok) return Json(new { isSuccess = false, message = error ?? "Failed." });
+        await _log.LogAsync("investpro.partner.attachment-delete", nameof(LedgerAttachment), aid.ToString(),
+            value: deleted!, module: InvestProModule.ModuleIdValue, ct: ct);
+        return Json(new { isSuccess = true, message = "Removed." });
     }
 
     private void Validate(Partner m)

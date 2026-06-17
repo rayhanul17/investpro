@@ -36,13 +36,34 @@ public class InvestmentPartnerService
             .FirstOrDefaultAsync(x => x.Id == id, ct);
     }
 
+    /// <summary>
+    /// Contract edits are normally Draft-only, but after an approved reopen
+    /// the investment transitions back to Active and the contract MUST be
+    /// editable so the admin can fix whatever was wrong. We detect post-
+    /// reopen state by looking for an Approved ReopenRequest on the investment
+    /// (the Active snapshot it points to stays Active until the reclose
+    /// generates v2 and demotes it).
+    /// </summary>
+    private static async Task<bool> IsContractEditableAsync(InvestProDbContext db, Investment inv, CancellationToken ct)
+    {
+        if (inv.LifecycleStatus == InvestmentLifecycle.Draft) return true;
+        if (inv.LifecycleStatus == InvestmentLifecycle.Active)
+        {
+            return await db.ReopenRequests
+                .AnyAsync(r => r.InvestmentId == inv.Id
+                               && r.RequestStatus == ReopenRequestStatus.Approved
+                               && r.Status != EntityStatus.Deleted, ct);
+        }
+        return false;
+    }
+
     public async Task<(bool ok, string? error, InvestmentPartner? saved)> AddAsync(Guid investmentId, InvestmentPartner model, CancellationToken ct = default)
     {
         await using var db = OpenDb();
         var inv = await db.Investments.FirstOrDefaultAsync(x => x.Id == investmentId, ct);
         if (inv is null) return (false, "Investment not found.", null);
-        if (inv.LifecycleStatus != InvestmentLifecycle.Draft)
-            return (false, "Partners can only be added to Draft investments.", null);
+        if (!await IsContractEditableAsync(db, inv, ct))
+            return (false, "Partners can only be added to Draft investments (or post-reopen Active).", null);
 
         var partnerExists = await db.Partners.AnyAsync(x => x.Id == model.PartnerId, ct);
         if (!partnerExists) return (false, "Partner not found.", null);
@@ -72,8 +93,8 @@ public class InvestmentPartnerService
             .Include(x => x.Investment)
             .FirstOrDefaultAsync(x => x.Id == id, ct);
         if (row is null) return (false, "Not found.");
-        if (row.Investment is null || row.Investment.LifecycleStatus != InvestmentLifecycle.Draft)
-            return (false, "Contracts can only be edited while the investment is in Draft state.");
+        if (row.Investment is null || !await IsContractEditableAsync(db, row.Investment, ct))
+            return (false, "Contracts can only be edited while the investment is in Draft state (or post-reopen Active).");
 
         var err = ValidateContract(input);
         if (err is not null) return (false, err);
@@ -96,8 +117,8 @@ public class InvestmentPartnerService
             .Include(x => x.Investment)
             .FirstOrDefaultAsync(x => x.Id == id, ct);
         if (row is null) return (false, "Not found.");
-        if (row.Investment is null || row.Investment.LifecycleStatus != InvestmentLifecycle.Draft)
-            return (false, "Contracts can only be removed while the investment is in Draft state.");
+        if (row.Investment is null || !await IsContractEditableAsync(db, row.Investment, ct))
+            return (false, "Contracts can only be removed while the investment is in Draft state (or post-reopen Active).");
 
         var repo = new EfRepository<InvestmentPartner>(db);
         await repo.SoftDeleteAsync(row, ct);

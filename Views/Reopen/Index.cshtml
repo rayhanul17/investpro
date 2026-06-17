@@ -1,0 +1,132 @@
+@model List<ReopenRequest>
+@{
+    var inv = ViewData["Investment"] as Investment;
+    var contracts = ViewData["Contracts"] as List<InvestmentPartner> ?? new();
+    ViewData["Title"] = $"Reopen — {inv?.Code}";
+    Layout = "_InvestProLayout";
+    var current = Model.FirstOrDefault(r => r.RequestStatus == ReopenRequestStatus.Pending);
+    var canRequest = inv?.LifecycleStatus == InvestmentLifecycle.Closed && current is null;
+}
+
+<div class="d-flex align-items-center mb-3 gap-2">
+    <a href="/investpro/admin/investments/@inv!.Id" class="btn btn-sm btn-outline-secondary">← Investment</a>
+    <h4 class="mb-0">Reopen — @inv.Code <span class="text-muted fw-normal">@inv.Name</span></h4>
+</div>
+
+@if (TempData["Success"] is string ok) { <div class="alert alert-success py-2">@ok</div> }
+@if (TempData["Error"]   is string er) { <div class="alert alert-danger py-2">@er</div> }
+
+<div class="alert alert-warning small mb-3">
+    <i class="bi bi-exclamation-triangle"></i>
+    <strong>Reopen is for fixing a wrong close.</strong> Use this when the active snapshot has incorrect numbers
+    (e.g. wrong profit/loss %). The current snapshot is preserved as <em>Superseded</em> for audit. After every
+    partner approves, you can edit the contract and reclose to issue a new v2 snapshot with adjustment payouts
+    for any settlement deltas.
+</div>
+
+@if (canRequest)
+{
+    <div class="card shadow-sm mb-3">
+        <div class="card-header"><strong>Request Reopen</strong></div>
+        <div class="card-body">
+            <form method="post" action="/investpro/admin/investments/@inv.Id/reopen/request">
+                @Html.AntiForgeryToken()
+                <div class="mb-3">
+                    <label class="form-label">Reason <span class="text-danger">*</span></label>
+                    <textarea name="reason" class="form-control" rows="3" minlength="5" maxlength="2000" required
+                              placeholder="What was wrong with the original close? This is recorded permanently on the superseded snapshot."></textarea>
+                </div>
+                <button type="submit" class="btn btn-warning"><i class="bi bi-arrow-counterclockwise"></i> Request Reopen</button>
+            </form>
+        </div>
+    </div>
+}
+
+@if (current is not null)
+{
+    <div class="card shadow-sm mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>Pending Reopen Request</strong>
+            <span class="small text-muted">Initiated: @current.InitiatedAt.ToString("yyyy-MM-dd HH:mm")</span>
+        </div>
+        <div class="card-body">
+            <div class="mb-3"><strong>Reason:</strong> @current.Reason</div>
+            <div class="card-body p-0 border-top">
+                <table class="table mb-0 align-middle">
+                    <thead class="table-light small">
+                        <tr>
+                            <th>Partner</th>
+                            <th style="width:140px">Decision</th>
+                            <th>Comment</th>
+                            <th style="width:160px">Decided At</th>
+                            <th style="width:200px">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in current.Approvals)
+                        {
+                            var contract = contracts.FirstOrDefault(c => c.PartnerId == a.PartnerId);
+                            var pname = contract?.Partner?.Name ?? a.PartnerId.ToString();
+                            <tr>
+                                <td class="fw-medium">@pname</td>
+                                <td>
+                                    @switch (a.Decision)
+                                    {
+                                        case DecisionKind.Approved: <span class="badge text-bg-success">Approved</span> break;
+                                        case DecisionKind.Rejected: <span class="badge text-bg-danger">Rejected</span> break;
+                                        default: <span class="badge text-bg-warning">Pending</span> break;
+                                    }
+                                </td>
+                                <td class="small text-muted">@(a.Comment ?? "")</td>
+                                <td class="small text-muted">@(a.DecidedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                                <td>
+                                    @if (a.Decision == DecisionKind.Pending)
+                                    {
+                                        <form method="post" action="/investpro/admin/investments/@inv.Id/reopen/@current.Id/decide" class="d-flex gap-1">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="PartnerId" value="@a.PartnerId" />
+                                            <button type="submit" name="Decision" value="Approved" class="btn btn-sm btn-success">Approve</button>
+                                            <button type="submit" name="Decision" value="Rejected" class="btn btn-sm btn-outline-danger">Reject</button>
+                                        </form>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@if (Model.Any(r => r.RequestStatus != ReopenRequestStatus.Pending))
+{
+    <div class="card shadow-sm">
+        <div class="card-header"><strong>Past Reopen Requests</strong></div>
+        <div class="card-body p-0">
+            <table class="table mb-0 align-middle">
+                <thead class="table-light small">
+                    <tr><th>Initiated</th><th>Status</th><th>Reason</th><th>Finalised</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in Model.Where(x => x.RequestStatus != ReopenRequestStatus.Pending))
+                    {
+                        <tr>
+                            <td class="small text-muted">@r.InitiatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>
+                                @switch (r.RequestStatus)
+                                {
+                                    case ReopenRequestStatus.Approved:  <span class="badge text-bg-success">Approved</span> break;
+                                    case ReopenRequestStatus.Rejected:  <span class="badge text-bg-danger">Rejected</span> break;
+                                    case ReopenRequestStatus.Cancelled: <span class="badge text-bg-secondary">Cancelled</span> break;
+                                }
+                            </td>
+                            <td class="small">@r.Reason</td>
+                            <td class="small text-muted">@(r.FinalizedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}

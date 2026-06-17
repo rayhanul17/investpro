@@ -170,6 +170,17 @@ public static class CalculationHelper
         return basis > 0m ? RoundMoney(basis) : 0m;
     }
 
+    // ── Step 6.5: Adjustment delta (used when reclosing after a reopen) ──
+
+    /// <summary>
+    /// Delta between the freshly calculated settlement and the previous
+    /// snapshot's settlement. Positive = investment still owes the partner
+    /// more (Outgoing adjustment). Negative = partner owes back (Incoming
+    /// adjustment).
+    /// </summary>
+    public static decimal CalcAdjustmentDelta(decimal currentSettlement, decimal previousSettlement)
+        => RoundMoney(currentSettlement - previousSettlement);
+
     // ── Step 7: Tamper-detection checksum ───────────────────────────────
 
     /// <summary>

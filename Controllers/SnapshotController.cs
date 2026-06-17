@@ -40,11 +40,23 @@ public class SnapshotController : Controller
         if (snap is null) return NotFound();
         var inv = await _investments.GetByIdAsync(investmentId, ct);
         var payouts = await _payouts.GetBySnapshotAsync(id, ct);
+        var history = await _close.GetSnapshotHistoryAsync(investmentId, ct);
 
         ViewData["Investment"] = inv;
         ViewData["Payouts"]    = payouts;
         ViewData["ChecksumOk"] = _close.VerifyChecksum(snap);
+        ViewData["History"]    = history;
         return View(snap);
+    }
+
+    [HttpGet("history")]
+    public async Task<IActionResult> History(Guid investmentId, CancellationToken ct)
+    {
+        var inv = await _investments.GetByIdAsync(investmentId, ct);
+        if (inv is null) return NotFound();
+        var snapshots = await _close.GetSnapshotHistoryAsync(investmentId, ct);
+        ViewData["Investment"] = inv;
+        return View(snapshots);
     }
 
     public record PayForm(PaymentMethod PaymentMethod, string? ReferenceNo, string? Notes);

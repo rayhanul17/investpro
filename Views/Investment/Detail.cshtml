@@ -5,6 +5,11 @@
     var contracts = ViewData["Partners"] as List<InvestmentPartner> ?? new();
     var availablePartners = ViewData["AvailablePartners"] as List<Partner> ?? new();
     var isDraft = Model.LifecycleStatus == InvestmentLifecycle.Draft;
+    // 'isDraft' was the old name for "contracts can still be changed".
+    // After Phase 7 we also enter this state for a post-reopen Active
+    // investment; the controller hands us the resolved flag.
+    var isContractEditable = ViewData["IsContractEditable"] as bool? ?? isDraft;
+    var isPostReopen       = ViewData["IsPostReopen"] as bool? ?? false;
     decimal profitSum = contracts.Sum(c => c.ProfitSharePercent);
     decimal lossSum   = contracts.Sum(c => c.LossSharePercent);
     decimal totalCap  = contracts.Sum(c => c.AgreedCapital);
@@ -40,6 +45,12 @@
                     <i class="bi bi-play-fill"></i> Activate
                 </button>
             </form>
+        }
+        @if (isPostReopen)
+        {
+            <span class="badge text-bg-warning align-self-center">
+                <i class="bi bi-arrow-counterclockwise"></i> Reopened — edit contracts, then Close again
+            </span>
         }
         @if (Model.LifecycleStatus == InvestmentLifecycle.Active || Model.LifecycleStatus == InvestmentLifecycle.Closing || Model.LifecycleStatus == InvestmentLifecycle.Closed)
         {
@@ -125,13 +136,13 @@
                     <th class="text-end">Labor Value</th>
                     <th class="text-end">Profit %</th>
                     <th class="text-end">Loss %</th>
-                    @if (isDraft) { <th class="text-end" style="width:90px">Actions</th> }
+                    @if (isContractEditable) { <th class="text-end" style="width:90px">Actions</th> }
                 </tr>
             </thead>
             <tbody>
                 @if (!contracts.Any())
                 {
-                    <tr><td colspan="@(isDraft ? 8 : 7)" class="text-center text-muted py-3">No partners yet. Use the form below to add one.</td></tr>
+                    <tr><td colspan="@(isContractEditable ? 8 : 7)" class="text-center text-muted py-3">No partners yet. Use the form below to add one.</td></tr>
                 }
                 @foreach (var c in contracts)
                 {
@@ -143,7 +154,7 @@
                         <td class="text-end">@c.AgreedLaborValue.ToString("N2")</td>
                         <td class="text-end">@c.ProfitSharePercent.ToString("0.##")%</td>
                         <td class="text-end">@c.LossSharePercent.ToString("0.##")%</td>
-                        @if (isDraft)
+                        @if (isContractEditable)
                         {
                             <td class="text-end">
                                 <button type="button" class="btn btn-sm btn-outline-danger"

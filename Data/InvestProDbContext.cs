@@ -27,6 +27,8 @@ public class InvestProDbContext : DbContext
     public DbSet<InvestmentSnapshot> InvestmentSnapshots => Set<InvestmentSnapshot>();
     public DbSet<SnapshotPartnerDetail> SnapshotPartnerDetails => Set<SnapshotPartnerDetail>();
     public DbSet<Payout> Payouts => Set<Payout>();
+    public DbSet<ReopenRequest> ReopenRequests => Set<ReopenRequest>();
+    public DbSet<ReopenApproval> ReopenApprovals => Set<ReopenApproval>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -238,7 +240,33 @@ public class InvestProDbContext : DbContext
             e.Property(x => x.TotalLaborValue).HasColumnType("numeric(18,2)");
             e.Property(x => x.Checksum).HasMaxLength(64).IsRequired();
             e.Property(x => x.ClosedByUserName).HasMaxLength(200);
-            e.HasIndex(x => x.InvestmentId).IsUnique();
+            e.Property(x => x.SnapshotStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.SupersededReason).HasMaxLength(2000);
+            // Drop unique constraint on InvestmentId — multiple snapshots
+            // per investment are now allowed (one Active + many Superseded).
+            e.HasIndex(x => x.InvestmentId);
+            e.HasIndex(x => new { x.InvestmentId, x.SnapshotStatus });
+        });
+
+        modelBuilder.Entity<SnapshotPartnerDetail>(e =>
+        {
+            e.Property(x => x.PreviousSettlementAmount).HasColumnType("numeric(18,2)");
+            e.Property(x => x.AdjustmentAmount).HasColumnType("numeric(18,2)");
+        });
+
+        modelBuilder.Entity<ReopenRequest>(e =>
+        {
+            e.Property(x => x.RequestStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.Reason).HasMaxLength(2000).IsRequired();
+            e.HasIndex(x => x.InvestmentId);
+            e.HasIndex(x => x.RequestStatus);
+        });
+
+        modelBuilder.Entity<ReopenApproval>(e =>
+        {
+            e.Property(x => x.Decision).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.Comment).HasMaxLength(1000);
+            e.HasOne(x => x.ReopenRequest!).WithMany(r => r.Approvals).HasForeignKey(x => x.ReopenRequestId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<SnapshotPartnerDetail>(e =>
@@ -267,6 +295,7 @@ public class InvestProDbContext : DbContext
             e.Property(x => x.Amount).HasColumnType("numeric(18,2)");
             e.Property(x => x.PaymentMethod).HasConversion<string>().HasMaxLength(20).IsRequired();
             e.Property(x => x.PaymentStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.Direction).HasConversion<string>().HasMaxLength(20).IsRequired();
             e.Property(x => x.ReferenceNo).HasMaxLength(100);
             e.Property(x => x.Notes).HasMaxLength(1000);
             e.HasIndex(x => x.SnapshotId);
@@ -610,6 +639,12 @@ public class CloseApproval : BaseEfEntity
     public string? Comment { get; set; }
 }
 
+public enum SnapshotStatus
+{
+    Active     = 1,  // current authoritative snapshot for the investment
+    Superseded = 2,  // replaced by a newer one after a reopen → reclose
+}
+
 public class InvestmentSnapshot : BaseEfEntity
 {
     public Guid InvestmentId { get; set; }
@@ -629,6 +664,15 @@ public class InvestmentSnapshot : BaseEfEntity
 
     /// <summary>SHA256 hex of the snapshot + its partner details (in canonical order). Recomputed and compared on read for tamper detection.</summary>
     public string Checksum { get; set; } = "";
+
+    // ── Versioning (Phase 7) ────────────────────────────────────────────
+    /// <summary>1 for the first close. Bumps every reclose after a reopen.</summary>
+    public int Version { get; set; } = 1;
+    public SnapshotStatus SnapshotStatus { get; set; } = SnapshotStatus.Active;
+    /// <summary>Previous version of this snapshot, when this row was produced after a reopen. Null on v1.</summary>
+    public Guid? PreviousSnapshotId { get; set; }
+    public string? SupersededReason { get; set; }
+    public DateTime? SupersededAt { get; set; }
 
     public List<SnapshotPartnerDetail> PartnerDetails { get; set; } = [];
 }
@@ -660,6 +704,54 @@ public class SnapshotPartnerDetail : BaseEfEntity
     public decimal WithdrawalsDuringInvestment { get; set; }
     public decimal FinalSettlementAmount { get; set; }
     public decimal ZakatEligibleAmount { get; set; }
+
+    // ── Versioning (Phase 7) ────────────────────────────────────────────
+    /// <summary>Settlement amount from the previous snapshot version. 0 for v1, prior value for v2+.</summary>
+    public decimal PreviousSettlementAmount { get; set; }
+    /// <summary>FinalSettlementAmount − PreviousSettlementAmount. Drives the adjustment payout row direction.</summary>
+    public decimal AdjustmentAmount { get; set; }
+}
+
+public enum ReopenRequestStatus
+{
+    Pending   = 1,
+    Approved  = 2,
+    Rejected  = 3,
+    Cancelled = 4,
+}
+
+public class ReopenRequest : BaseEfEntity
+{
+    public Guid InvestmentId { get; set; }
+    /// <summary>The snapshot the requester wants to invalidate.</summary>
+    public Guid CurrentSnapshotId { get; set; }
+    public Guid InitiatedByUserId { get; set; }
+    public DateTime InitiatedAt { get; set; }
+    /// <summary>Mandatory — why the close is being undone.</summary>
+    public string Reason { get; set; } = "";
+    public ReopenRequestStatus RequestStatus { get; set; } = ReopenRequestStatus.Pending;
+    public DateTime? FinalizedAt { get; set; }
+
+    public List<ReopenApproval> Approvals { get; set; } = [];
+}
+
+public class ReopenApproval : BaseEfEntity
+{
+    public Guid ReopenRequestId { get; set; }
+    public ReopenRequest? ReopenRequest { get; set; }
+
+    public Guid PartnerId { get; set; }
+    public DecisionKind Decision { get; set; } = DecisionKind.Pending;
+    public DateTime? DecidedAt { get; set; }
+    public string? Comment { get; set; }
+}
+
+public enum PayoutDirection
+{
+    /// <summary>Investment owes the partner. Standard case.</summary>
+    Outgoing = 1,
+    /// <summary>Partner owes back to the investment pool. Used after a reclose lowers a partner's settlement below what was already paid.</summary>
+    Incoming = 2,
 }
 
 public class Payout : BaseEfEntity
@@ -671,6 +763,9 @@ public class Payout : BaseEfEntity
     public decimal Amount { get; set; }
     public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.Cash;
     public PayoutStatus PaymentStatus { get; set; } = PayoutStatus.Pending;
+    public PayoutDirection Direction { get; set; } = PayoutDirection.Outgoing;
+    /// <summary>True when this row was emitted to settle a Δ between two snapshot versions, not the headline payout itself.</summary>
+    public bool IsAdjustment { get; set; }
     public DateTime? PaidAt { get; set; }
     public string? ReferenceNo { get; set; }
     public string? Notes { get; set; }

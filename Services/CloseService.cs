@@ -174,12 +174,24 @@ public class CloseService
             .Where(c => c.InvestmentId == inv.Id && c.Status != EntityStatus.Deleted)
             .ToListAsync(ct);
 
+        // ── 1.5. Previous snapshot (if this is a reclose after reopen) ──
+        // The most recent Active snapshot for this investment becomes the
+        // baseline for the per-partner adjustment delta + gets stamped
+        // Superseded once the new snapshot is built.
+        var previousSnapshot = await db.InvestmentSnapshots
+            .Include(s => s.PartnerDetails)
+            .FirstOrDefaultAsync(s => s.InvestmentId == inv.Id
+                                      && s.SnapshotStatus == SnapshotStatus.Active
+                                      && s.Status != EntityStatus.Deleted, ct);
+
+        int version = (previousSnapshot?.Version ?? 0) + 1;
+
         // ── 2. Totals via CalculationHelper ─────────────────────────────
-        var grossRevenue   = CalculationHelper.CalcGrossRevenue(revs);
-        var grossExpense   = CalculationHelper.CalcGrossExpense(exps);
-        var totalCapital   = CalculationHelper.CalcTotalCapital(caps);
+        var grossRevenue    = CalculationHelper.CalcGrossRevenue(revs);
+        var grossExpense    = CalculationHelper.CalcGrossExpense(exps);
+        var totalCapital    = CalculationHelper.CalcTotalCapital(caps);
         var totalLaborValue = CalculationHelper.CalcTotalLaborValue(labs);
-        var netPL          = CalculationHelper.CalcNetPL(grossRevenue, grossExpense);
+        var netPL           = CalculationHelper.CalcNetPL(grossRevenue, grossExpense);
 
         var snap = new InvestmentSnapshot
         {
@@ -197,6 +209,9 @@ public class CloseService
             TotalCapital = totalCapital,
             TotalLaborValue = totalLaborValue,
             PartnerCount = contracts.Count,
+            Version = version,
+            SnapshotStatus = SnapshotStatus.Active,
+            PreviousSnapshotId = previousSnapshot?.Id,
         };
         db.InvestmentSnapshots.Add(snap);
 
@@ -207,7 +222,6 @@ public class CloseService
 
         foreach (var c in contracts)
         {
-            // Each partner's own contributed totals (approved-only).
             decimal partnerCapital = CalculationHelper.CalcTotalCapital(
                 caps.Where(x => x.PartnerId == c.PartnerId));
             decimal partnerLabor   = CalculationHelper.CalcTotalLaborValue(
@@ -216,9 +230,18 @@ public class CloseService
             decimal profitShare = CalculationHelper.CalcPartnerProfitShare(netProfit, c.ProfitSharePercent);
             decimal lossShare   = CalculationHelper.CalcPartnerLossShare(netLossAbs, c.LossSharePercent, c.ContractType);
 
-            decimal withdrawals = 0m; // no mid-investment withdrawal feature yet
+            decimal withdrawals = 0m;
             decimal settlement  = CalculationHelper.CalcPartnerSettlement(partnerCapital, profitShare, lossShare, withdrawals);
             decimal zakatBase   = CalculationHelper.CalcZakatEligibleBase(partnerCapital, profitShare);
+
+            // Reclose: find this partner's previous settlement to compute
+            // the adjustment delta. First close: previous = 0, delta = full
+            // settlement (matches the old behaviour exactly).
+            decimal previousSettlement = previousSnapshot?
+                .PartnerDetails
+                .FirstOrDefault(pd => pd.PartnerId == c.PartnerId)
+                ?.FinalSettlementAmount ?? 0m;
+            decimal adjustment = CalculationHelper.CalcAdjustmentDelta(settlement, previousSettlement);
 
             var detail = new SnapshotPartnerDetail
             {
@@ -240,12 +263,39 @@ public class CloseService
                 WithdrawalsDuringInvestment = withdrawals,
                 FinalSettlementAmount = settlement,
                 ZakatEligibleAmount = zakatBase,
+                PreviousSettlementAmount = previousSettlement,
+                AdjustmentAmount = adjustment,
             };
             details.Add(detail);
             db.SnapshotPartnerDetails.Add(detail);
 
-            // Seed a Pending payout row so admins have a checklist to clear.
-            if (settlement > 0m)
+            // Payout seeding:
+            // - v1 close: seed Pending payout = full settlement (legacy shape).
+            // - v2+ close: seed Pending adjustment payout = absolute Δ,
+            //              direction Outgoing if Δ>0 (we owe partner more),
+            //              Incoming if Δ<0 (partner owes back).
+            //   The original headline payouts from v1 keep their own state
+            //   (Paid / Pending) — they're not touched here.
+            if (previousSnapshot is null)
+            {
+                if (settlement > 0m)
+                {
+                    db.Payouts.Add(new Payout
+                    {
+                        Id = Guid.NewGuid(),
+                        SnapshotId = snap.Id,
+                        PartnerDetailId = detail.Id,
+                        InvestmentId = inv.Id,
+                        PartnerId = c.PartnerId,
+                        Amount = settlement,
+                        Direction = PayoutDirection.Outgoing,
+                        IsAdjustment = false,
+                        PaymentMethod = PaymentMethod.Cash,
+                        PaymentStatus = PayoutStatus.Pending,
+                    });
+                }
+            }
+            else if (adjustment != 0m)
             {
                 db.Payouts.Add(new Payout
                 {
@@ -254,15 +304,27 @@ public class CloseService
                     PartnerDetailId = detail.Id,
                     InvestmentId = inv.Id,
                     PartnerId = c.PartnerId,
-                    Amount = settlement,
+                    Amount = Math.Abs(adjustment),
+                    Direction = adjustment > 0m ? PayoutDirection.Outgoing : PayoutDirection.Incoming,
+                    IsAdjustment = true,
                     PaymentMethod = PaymentMethod.Cash,
                     PaymentStatus = PayoutStatus.Pending,
+                    Notes = $"Adjustment v{version} − v{(previousSnapshot?.Version ?? 0)}",
                 });
             }
         }
 
         // ── 4. Tamper-detection checksum (computed AFTER all rows set) ──
         snap.Checksum = CalculationHelper.CalcChecksum(snap, details);
+
+        // ── 5. Demote the previous snapshot (if any) ────────────────────
+        if (previousSnapshot is not null)
+        {
+            previousSnapshot.SnapshotStatus = SnapshotStatus.Superseded;
+            previousSnapshot.SupersededAt = DateTime.UtcNow;
+            // SupersededReason is set by the reopen flow before this point;
+            // here we just stamp the timestamp.
+        }
 
         await db.SaveChangesAsync(ct);
         return snap.Id;
@@ -271,9 +333,24 @@ public class CloseService
     public async Task<InvestmentSnapshot?> GetSnapshotByInvestmentAsync(Guid investmentId, CancellationToken ct = default)
     {
         await using var db = OpenDb();
+        // Pick the Active snapshot (post-reopen there may be Superseded
+        // rows too — those open via /snapshot/{id} only, not the default
+        // /snapshot landing).
         return await db.InvestmentSnapshots
             .Include(s => s.PartnerDetails)
-            .FirstOrDefaultAsync(s => s.InvestmentId == investmentId, ct);
+            .FirstOrDefaultAsync(s => s.InvestmentId == investmentId
+                                      && s.SnapshotStatus == SnapshotStatus.Active
+                                      && s.Status != EntityStatus.Deleted, ct);
+    }
+
+    /// <summary>Every snapshot for the investment, newest first. Used by the history viewer.</summary>
+    public async Task<List<InvestmentSnapshot>> GetSnapshotHistoryAsync(Guid investmentId, CancellationToken ct = default)
+    {
+        await using var db = OpenDb();
+        return await db.InvestmentSnapshots
+            .Where(s => s.InvestmentId == investmentId && s.Status != EntityStatus.Deleted)
+            .OrderByDescending(s => s.Version)
+            .ToListAsync(ct);
     }
 
     public async Task<InvestmentSnapshot?> GetSnapshotByIdAsync(Guid id, CancellationToken ct = default)

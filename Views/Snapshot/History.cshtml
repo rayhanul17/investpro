@@ -1,0 +1,54 @@
+@model List<InvestmentSnapshot>
+@{
+    var inv = ViewData["Investment"] as Investment;
+    ViewData["Title"] = $"Snapshot History — {inv?.Code}";
+    Layout = "_InvestProLayout";
+}
+
+<div class="d-flex align-items-center mb-3 gap-2">
+    <a href="/investpro/admin/investments/@inv!.Id" class="btn btn-sm btn-outline-secondary">← Investment</a>
+    <h4 class="mb-0"><i class="bi bi-clock-history"></i> Snapshot History — @inv.Code</h4>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table mb-0 align-middle">
+            <thead class="table-light small">
+                <tr>
+                    <th>Version</th>
+                    <th>Status</th>
+                    <th>Closed At</th>
+                    <th class="text-end">Net P/L</th>
+                    <th>Superseded Reason</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in Model)
+                {
+                    <tr>
+                        <td class="fw-bold">v@s.Version</td>
+                        <td>
+                            @if (s.SnapshotStatus == SnapshotStatus.Active)
+                            {
+                                <span class="badge text-bg-success">Active</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-bg-secondary">Superseded</span>
+                            }
+                        </td>
+                        <td class="small text-muted">@s.ClosedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td class="text-end fw-medium @(s.NetPL >= 0 ? "text-success" : "text-danger")">@s.NetPL.ToString("N2")</td>
+                        <td class="small text-muted">@(s.SupersededReason ?? "—")</td>
+                        <td>
+                            <a href="/investpro/admin/investments/@inv.Id/snapshot/@s.Id" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-eye"></i> View
+                            </a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

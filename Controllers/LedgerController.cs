@@ -29,16 +29,17 @@ public class LedgerController : Controller
     private readonly PartnerService _partners;
     private readonly ExpenseCategoryService _categories;
     private readonly AttachmentService _attachments;
+    private readonly ApprovalService _approvals;
     private readonly IFcmsLogService _log;
 
     public LedgerController(CapitalContributionService capital, LaborContributionService labor,
         ExpenseEntryService expense, RevenueEntryService revenue,
         InvestmentService investments, PartnerService partners, ExpenseCategoryService categories,
-        AttachmentService attachments, IFcmsLogService log)
+        AttachmentService attachments, ApprovalService approvals, IFcmsLogService log)
     {
         _capital = capital; _labor = labor; _expense = expense; _revenue = revenue;
         _investments = investments; _partners = partners; _categories = categories;
-        _attachments = attachments; _log = log;
+        _attachments = attachments; _approvals = approvals; _log = log;
     }
 
     private static LedgerKind Parse(string kind) => kind.ToLowerInvariant() switch
@@ -123,12 +124,37 @@ public class LedgerController : Controller
         }
 
         await HandleUploadsAsync(investmentId, k, result.newId, ct);
+
+        decimal amount = decimal.TryParse(Request.Form["Amount"], out var amt) ? amt : 0m;
+        if (k == LedgerKind.Labor)
+        {
+            var hours = decimal.TryParse(Request.Form["HoursOrDays"], out var h) ? h : 0m;
+            var rate = decimal.TryParse(Request.Form["RatePerUnit"], out var r) ? r : 0m;
+            amount = hours * rate;
+        }
+
+        var (mode, role, _) = await _approvals.ResolveModeAsync(k, amount, ct);
+        if (mode != ApproverMode.Auto)
+        {
+            await _approvals.CreateRequestAsync(investmentId, k, result.newId, amount, mode, role, ct);
+            await SetLedgerStatusPendingAsync(k, result.newId, ct);
+            TempData["Success"] = $"Entry recorded. Waiting for {(mode == ApproverMode.AllPartners ? "all partners" : "approver")} to decide.";
+        }
+        else
+        {
+            TempData["Success"] = "Entry recorded.";
+        }
+
         await _log.LogAsync($"investpro.ledger.{kind}.create", k.ToString(), result.newId.ToString(),
-            value: new { investmentId, kind, amount = Request.Form["Amount"].ToString() },
+            value: new { investmentId, kind, amount, approvalMode = mode.ToString() },
             module: InvestProModule.ModuleIdValue, ct: ct);
 
-        TempData["Success"] = "Entry recorded.";
         return RedirectToAction(nameof(Index), new { investmentId, kind });
+    }
+
+    private async Task SetLedgerStatusPendingAsync(LedgerKind kind, Guid entryId, CancellationToken ct)
+    {
+        await _approvals.SetLedgerEntryStatusAsync(kind, entryId, LedgerApprovalStatus.Pending, ct);
     }
 
     // ── Edit ──────────────────────────────────────────────────────────────

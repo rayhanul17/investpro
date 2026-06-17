@@ -168,6 +168,9 @@ public class InvestProModule : BaseModule
 
         new(InvestProPermissions.LedgerViewKey,            "View ledger entries",          "InvestPro"),
         new(InvestProPermissions.LedgerWriteKey,           "Create/edit/delete ledger entries", "InvestPro"),
+
+        new(InvestProPermissions.ApprovalViewKey,          "View approval requests",       "InvestPro"),
+        new(InvestProPermissions.ApprovalDecideKey,        "Approve or reject requests",   "InvestPro"),
     ];
 }
 
@@ -195,6 +198,9 @@ public static class InvestProPermissions
     public const string LedgerViewKey  = "ledger.view";
     public const string LedgerWriteKey = "ledger.write";
 
+    public const string ApprovalViewKey   = "approval.view";
+    public const string ApprovalDecideKey = "approval.decide";
+
     private const string P = "flexcms.investpro.";
 
     public const string PartnerView   = P + PartnerViewKey;
@@ -218,4 +224,7 @@ public static class InvestProPermissions
 
     public const string LedgerView  = P + LedgerViewKey;
     public const string LedgerWrite = P + LedgerWriteKey;
+
+    public const string ApprovalView   = P + ApprovalViewKey;
+    public const string ApprovalDecide = P + ApprovalDecideKey;
 }

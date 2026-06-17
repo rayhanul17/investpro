@@ -20,6 +20,8 @@ public class InvestProDbContext : DbContext
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<Revenue> Revenues => Set<Revenue>();
     public DbSet<LedgerAttachment> LedgerAttachments => Set<LedgerAttachment>();
+    public DbSet<ApprovalRequest> ApprovalRequests => Set<ApprovalRequest>();
+    public DbSet<ApprovalDecision> ApprovalDecisions => Set<ApprovalDecision>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -180,6 +182,27 @@ public class InvestProDbContext : DbContext
             e.Property(x => x.FileType).HasMaxLength(100);
             e.Property(x => x.AttachmentLabel).HasConversion<string>().HasMaxLength(20).IsRequired();
             e.HasIndex(x => new { x.LedgerType, x.LedgerEntryId });
+        });
+
+        modelBuilder.Entity<ApprovalRequest>(e =>
+        {
+            e.Property(x => x.LedgerType).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.Amount).HasColumnType("numeric(18,2)");
+            e.Property(x => x.RequestStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.RequiredApproverMode).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.ApproverRole).HasConversion<string>().HasMaxLength(30);
+            e.Property(x => x.Reason).HasMaxLength(500);
+            e.HasIndex(x => x.InvestmentId);
+            e.HasIndex(x => new { x.LedgerType, x.LedgerEntryId }).IsUnique();
+            e.HasIndex(x => x.RequestStatus);
+        });
+
+        modelBuilder.Entity<ApprovalDecision>(e =>
+        {
+            e.Property(x => x.Decision).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.Comment).HasMaxLength(1000);
+            e.HasIndex(x => x.ApprovalRequestId);
+            e.HasOne(x => x.Request!).WithMany(r => r.Decisions).HasForeignKey(x => x.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 
@@ -405,4 +428,55 @@ public class LedgerAttachment : BaseEfEntity
     public string? FileType { get; set; }
     public long FileSize { get; set; }
     public AttachmentLabel AttachmentLabel { get; set; } = AttachmentLabel.Other;
+}
+
+public enum ApprovalRequestStatus
+{
+    Pending  = 1,
+    Approved = 2,
+    Rejected = 3,
+    Cancelled = 4,
+}
+
+public enum ApproverMode
+{
+    Auto         = 1,
+    SingleApprover = 2,
+    AllPartners  = 3,
+}
+
+public enum DecisionKind
+{
+    Pending  = 1,
+    Approved = 2,
+    Rejected = 3,
+}
+
+public class ApprovalRequest : BaseEfEntity
+{
+    public Guid InvestmentId { get; set; }
+    public LedgerKind LedgerType { get; set; }
+    public Guid LedgerEntryId { get; set; }
+    public decimal Amount { get; set; }
+    public ApproverMode RequiredApproverMode { get; set; }
+    public ApproverRole? ApproverRole { get; set; }
+    public ApprovalRequestStatus RequestStatus { get; set; } = ApprovalRequestStatus.Pending;
+    public DateTime InitiatedAt { get; set; }
+    public DateTime? DecidedAt { get; set; }
+    public string? Reason { get; set; }
+
+    public List<ApprovalDecision> Decisions { get; set; } = [];
+}
+
+public class ApprovalDecision : BaseEfEntity
+{
+    public Guid ApprovalRequestId { get; set; }
+    public ApprovalRequest? Request { get; set; }
+
+    public Guid? PartnerId { get; set; }
+    public Guid? UserId { get; set; }
+
+    public DecisionKind Decision { get; set; } = DecisionKind.Pending;
+    public DateTime? DecidedAt { get; set; }
+    public string? Comment { get; set; }
 }

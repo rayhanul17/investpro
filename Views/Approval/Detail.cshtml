@@ -1,0 +1,129 @@
+@model ApprovalRequest
+@{
+    var inv = ViewData["Investment"] as Investment;
+    ViewData["Title"] = $"Approval — {inv?.Code}";
+    Layout = "_InvestProLayout";
+    var isAllPartners = Model.RequiredApproverMode == ApproverMode.AllPartners;
+}
+
+<div class="d-flex align-items-center mb-3 gap-2">
+    <a href="/investpro/admin/approvals" class="btn btn-sm btn-outline-secondary">← Inbox</a>
+    <h4 class="mb-0">Approval Review</h4>
+</div>
+
+@if (TempData["Error"] is string er) { <div class="alert alert-danger py-2">@er</div> }
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="small text-muted">Investment</div>
+                <div><a href="/investpro/admin/investments/@Model.InvestmentId" class="fw-medium">@inv?.Code</a> <span class="text-muted ms-2">@inv?.Name</span></div>
+            </div>
+            <div class="col-md-3">
+                <div class="small text-muted">Ledger</div>
+                <div><span class="badge text-bg-secondary fs-6">@Model.LedgerType</span></div>
+            </div>
+            <div class="col-md-3">
+                <div class="small text-muted">Amount</div>
+                <div class="h5 mb-0">@Model.Amount.ToString("N2") BDT</div>
+            </div>
+            <div class="col-md-4">
+                <div class="small text-muted">Status</div>
+                <div>
+                    @switch (Model.RequestStatus)
+                    {
+                        case ApprovalRequestStatus.Pending:  <span class="badge text-bg-warning">Pending</span> break;
+                        case ApprovalRequestStatus.Approved: <span class="badge text-bg-success">Approved</span> break;
+                        case ApprovalRequestStatus.Rejected: <span class="badge text-bg-danger">Rejected</span> break;
+                        case ApprovalRequestStatus.Cancelled: <span class="badge text-bg-secondary">Cancelled</span> break;
+                    }
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="small text-muted">Mode</div>
+                <div>
+                    @switch (Model.RequiredApproverMode)
+                    {
+                        case ApproverMode.SingleApprover: <span class="badge text-bg-info">Single approver — @Model.ApproverRole</span> break;
+                        case ApproverMode.AllPartners:    <span class="badge text-bg-warning">All partners must approve</span> break;
+                    }
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="small text-muted">Initiated</div>
+                <div>@Model.InitiatedAt.ToString("yyyy-MM-dd HH:mm")</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (isAllPartners)
+{
+    <div class="card shadow-sm mb-3">
+        <div class="card-header"><strong>Per-Partner Decisions</strong></div>
+        <div class="card-body p-0">
+            <table class="table mb-0 align-middle">
+                <thead class="table-light small">
+                    <tr><th>Partner</th><th>Status</th><th>Comment</th><th>Decided</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var d in Model.Decisions)
+                    {
+                        <tr>
+                            <td class="small">@d.PartnerId</td>
+                            <td>
+                                @switch (d.Decision)
+                                {
+                                    case DecisionKind.Approved: <span class="badge text-bg-success">Approved</span> break;
+                                    case DecisionKind.Rejected: <span class="badge text-bg-danger">Rejected</span> break;
+                                    default: <span class="badge text-bg-warning">Pending</span> break;
+                                }
+                            </td>
+                            <td class="small text-muted">@(d.Comment ?? "")</td>
+                            <td class="small text-muted">@(d.DecidedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@if (Model.RequestStatus == ApprovalRequestStatus.Pending)
+{
+    <div class="card shadow-sm">
+        <div class="card-header"><strong>Decide</strong></div>
+        <div class="card-body">
+            <form method="post" action="/investpro/admin/approvals/@Model.Id/decide">
+                @Html.AntiForgeryToken()
+                @if (isAllPartners)
+                {
+                    <div class="mb-3">
+                        <label class="form-label">Which partner are you deciding for?</label>
+                        <select name="PartnerId" class="form-select" required>
+                            <option value="">— Select —</option>
+                            @foreach (var d in Model.Decisions.Where(x => x.Decision == DecisionKind.Pending))
+                            {
+                                <option value="@d.PartnerId">@d.PartnerId</option>
+                            }
+                        </select>
+                        <div class="form-text">Only pending partners are listed. Each partner can decide once.</div>
+                    </div>
+                }
+                <div class="mb-3">
+                    <label class="form-label">Comment</label>
+                    <textarea name="Comment" class="form-control" rows="2" maxlength="1000" placeholder="Optional context (especially for rejections)"></textarea>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="submit" name="Decision" value="Approved" class="btn btn-success">
+                        <i class="bi bi-check-lg"></i> Approve
+                    </button>
+                    <button type="submit" name="Decision" value="Rejected" class="btn btn-outline-danger">
+                        <i class="bi bi-x-lg"></i> Reject
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+}

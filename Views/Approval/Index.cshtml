@@ -1,0 +1,66 @@
+@model List<ApprovalRequest>
+@{
+    ViewData["Title"] = "Approval Inbox";
+    Layout = "_InvestProLayout";
+    var investments = ViewData["Investments"] as Dictionary<Guid, Investment> ?? new();
+}
+
+<div class="d-flex justify-content-between align-items-start mb-3 gap-2 flex-wrap">
+    <div>
+        <h4 class="mb-1">Approval Inbox</h4>
+        <small class="text-muted">Pending requests across all investments. Click one to view details and decide.</small>
+    </div>
+    <span class="badge text-bg-warning fs-6">@Model.Count pending</span>
+</div>
+
+@if (TempData["Success"] is string ok) { <div class="alert alert-success py-2">@ok</div> }
+@if (TempData["Error"]   is string er) { <div class="alert alert-danger py-2">@er</div> }
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light small">
+                <tr>
+                    <th style="width:120px">Initiated</th>
+                    <th>Investment</th>
+                    <th style="width:90px">Ledger</th>
+                    <th class="text-end" style="width:140px">Amount</th>
+                    <th style="width:160px">Mode</th>
+                    <th class="text-end" style="width:120px">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr><td colspan="6" class="text-center text-muted py-3">Nothing pending — you're all caught up.</td></tr>
+                }
+                @foreach (var r in Model)
+                {
+                    var inv = investments.TryGetValue(r.InvestmentId, out var i) ? i : null;
+                    <tr>
+                        <td class="small text-muted">@r.InitiatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>
+                            <a href="/investpro/admin/investments/@r.InvestmentId" class="text-decoration-none">
+                                <strong>@(inv?.Code ?? "—")</strong>
+                                <span class="text-muted ms-2 small">@(inv?.Name ?? "")</span>
+                            </a>
+                        </td>
+                        <td><span class="badge text-bg-secondary">@r.LedgerType</span></td>
+                        <td class="text-end fw-medium">@r.Amount.ToString("N2")</td>
+                        <td>
+                            @switch (r.RequiredApproverMode)
+                            {
+                                case ApproverMode.SingleApprover: <span class="badge text-bg-info">@r.ApproverRole</span> break;
+                                case ApproverMode.AllPartners:    <span class="badge text-bg-warning">All partners</span> break;
+                                default:                          <span class="badge text-bg-light text-dark">@r.RequiredApproverMode</span> break;
+                            }
+                        </td>
+                        <td class="text-end">
+                            <a href="/investpro/admin/approvals/@r.Id" class="btn btn-sm btn-outline-primary">Review</a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

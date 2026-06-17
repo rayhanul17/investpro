@@ -1,0 +1,53 @@
+@model List<FlexCms.InvestPro.Services.ClosureRow>
+@{
+    var inv = ViewData["Investment"] as Investment;
+    ViewData["Title"] = $"Closure — {inv?.Code}";
+    Layout = "_InvestProLayout";
+}
+
+<div class="d-flex justify-content-between align-items-start mb-3 gap-2 flex-wrap">
+    <div>
+        <a href="/investpro/admin/reports" class="btn btn-sm btn-outline-secondary mb-2">← Reports</a>
+        <h4 class="mb-1">Closure Report — @inv!.Code <span class="text-muted fw-normal">@inv.Name</span></h4>
+        <small class="text-muted">Every approved ledger entry, chronologically.</small>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/investpro/admin/reports/closure/@inv.Id?format=pdf" class="btn btn-sm btn-outline-danger"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
+        <a href="/investpro/admin/reports/closure/@inv.Id?format=xlsx" class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-excel"></i> Excel</a>
+        <a href="/investpro/admin/reports/closure/@inv.Id?format=csv" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-text"></i> CSV</a>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light small">
+                <tr>
+                    <th>Date</th>
+                    <th>Ledger</th>
+                    <th>Partner</th>
+                    <th>Description</th>
+                    <th class="text-end">Amount</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr><td colspan="6" class="text-center text-muted py-3">No ledger entries for this investment.</td></tr>
+                }
+                @foreach (var r in Model)
+                {
+                    <tr>
+                        <td class="small text-muted">@r.TransactionDate.ToString("yyyy-MM-dd")</td>
+                        <td><span class="badge text-bg-secondary">@r.LedgerType</span></td>
+                        <td>@r.PartnerName</td>
+                        <td>@r.Description</td>
+                        <td class="text-end fw-medium">@r.Amount.ToString("N2")</td>
+                        <td><span class="badge text-bg-light text-dark">@r.ApprovalStatus</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

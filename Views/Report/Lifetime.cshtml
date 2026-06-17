@@ -1,0 +1,63 @@
+@model List<FlexCms.InvestPro.Services.LifetimeRow>
+@{
+    var partner = ViewData["Partner"] as Partner;
+    ViewData["Title"] = $"Lifetime — {partner?.Name}";
+    Layout = "_InvestProLayout";
+}
+
+<div class="d-flex justify-content-between align-items-start mb-3 gap-2 flex-wrap">
+    <div>
+        <a href="/investpro/admin/reports" class="btn btn-sm btn-outline-secondary mb-2">← Reports</a>
+        <h4 class="mb-1">Lifetime Statement — @partner!.Name</h4>
+        <small class="text-muted">@(partner.Nid is null ? "" : $"NID {partner.Nid} · ") @(partner.Phone ?? "")</small>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/investpro/admin/reports/lifetime/@partner.Id?format=pdf" class="btn btn-sm btn-outline-danger"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
+        <a href="/investpro/admin/reports/lifetime/@partner.Id?format=xlsx" class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-excel"></i> Excel</a>
+        <a href="/investpro/admin/reports/lifetime/@partner.Id?format=csv" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-text"></i> CSV</a>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light small">
+                <tr>
+                    <th>Code</th>
+                    <th>Investment</th>
+                    <th>Status</th>
+                    <th>Started</th>
+                    <th>Closed</th>
+                    <th class="text-end">Capital</th>
+                    <th class="text-end">Labor</th>
+                    <th class="text-end">Profit %</th>
+                    <th class="text-end">+Profit</th>
+                    <th class="text-end">−Loss</th>
+                    <th class="text-end">Settlement</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr><td colspan="11" class="text-center text-muted py-3">This partner has no investments.</td></tr>
+                }
+                @foreach (var r in Model)
+                {
+                    <tr>
+                        <td><strong>@r.InvestmentCode</strong></td>
+                        <td>@r.InvestmentName</td>
+                        <td><span class="badge text-bg-light text-dark">@r.LifecycleStatus</span></td>
+                        <td class="small text-muted">@r.StartDate.ToString("yyyy-MM-dd")</td>
+                        <td class="small text-muted">@(r.ClosedAt?.ToString("yyyy-MM-dd") ?? "—")</td>
+                        <td class="text-end">@r.CapitalContributed.ToString("N2")</td>
+                        <td class="text-end">@r.LaborValueContributed.ToString("N2")</td>
+                        <td class="text-end">@r.ProfitSharePercent.ToString("0.##")%</td>
+                        <td class="text-end text-success">@(r.ProfitShareAmount?.ToString("N2") ?? "—")</td>
+                        <td class="text-end text-danger">@(r.LossShareAmount?.ToString("N2") ?? "—")</td>
+                        <td class="text-end fw-bold">@(r.FinalSettlementAmount?.ToString("N2") ?? "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

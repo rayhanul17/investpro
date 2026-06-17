@@ -1,0 +1,100 @@
+@{
+    ViewData["Title"] = "Reports";
+    Layout = "_InvestProLayout";
+    var investments = ViewData["Investments"] as List<Investment> ?? new();
+    var partners = ViewData["Partners"] as List<Partner> ?? new();
+    var closedInvestments = investments.Where(i => i.LifecycleStatus == InvestmentLifecycle.Closed).ToList();
+}
+
+<div class="mb-3">
+    <h4 class="mb-1">Reports</h4>
+    <small class="text-muted">Read-only reports backed by raw SQL queries. Each report supports PDF / Excel / CSV download.</small>
+</div>
+
+<div class="row g-3">
+    @* ── Closure Report ───────────────────────────────────── *@
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-file-earmark-check"></i> Closure Report</h6>
+                <p class="text-muted small">Chronological list of every approved ledger entry for one investment. Useful as the audit attachment when sending payouts.</p>
+                <form method="get" action="/investpro/admin/reports/closure" onsubmit="this.action='/investpro/admin/reports/closure/' + this.elements.id.value;">
+                    <div class="mb-2">
+                        <select name="id" class="form-select form-select-sm" required>
+                            <option value="">— Select investment —</option>
+                            @foreach (var i in investments)
+                            {
+                                <option value="@i.Id">@i.Code — @i.Name <text>(</text>@i.LifecycleStatus<text>)</text></option>
+                            }
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary">View Report</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    @* ── Lifetime Statement ───────────────────────────────── *@
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-person-lines-fill"></i> Partner Lifetime Statement</h6>
+                <p class="text-muted small">Every investment one partner has participated in — planned numbers (capital, profit %) and, for closed investments, their actual settlement.</p>
+                <form method="get" onsubmit="this.action='/investpro/admin/reports/lifetime/' + this.elements.id.value;">
+                    <div class="mb-2">
+                        <select name="id" class="form-select form-select-sm" required>
+                            <option value="">— Select partner —</option>
+                            @foreach (var p in partners.OrderBy(p => p.Name))
+                            {
+                                <option value="@p.Id">@p.Name @(string.IsNullOrEmpty(p.Phone) ? "" : $"({p.Phone})")</option>
+                            }
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary">View Report</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    @* ── Zakat Report ─────────────────────────────────────── *@
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-cash-stack"></i> Annual Zakat Report</h6>
+                <p class="text-muted small">Per-partner zakat-eligible amount across every investment closed in the given year. Informational only — actual zakat liability is up to the partner.</p>
+                <form method="get" action="/investpro/admin/reports/zakat">
+                    <div class="mb-2">
+                        <input name="year" type="number" min="2020" max="2099" value="@DateTime.UtcNow.Year" class="form-control form-control-sm" required />
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary">View Report</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    @* ── Comparison Report ────────────────────────────────── *@
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-graph-up"></i> Planned vs Actual Comparison</h6>
+                <p class="text-muted small">For a closed investment, side-by-side planned and actual numbers per partner: agreed capital, profit share, and the settlement that landed.</p>
+                <form method="get" onsubmit="this.action='/investpro/admin/reports/comparison/' + this.elements.id.value;">
+                    <div class="mb-2">
+                        <select name="id" class="form-select form-select-sm" required>
+                            <option value="">— Select closed investment —</option>
+                            @foreach (var i in closedInvestments)
+                            {
+                                <option value="@i.Id">@i.Code — @i.Name</option>
+                            }
+                        </select>
+                        @if (!closedInvestments.Any())
+                        {
+                            <div class="form-text text-warning">No closed investments yet — comparison runs only after close.</div>
+                        }
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary" @(closedInvestments.Any() ? "" : "disabled")>View Report</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

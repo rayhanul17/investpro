@@ -1,0 +1,65 @@
+@model List<FlexCms.InvestPro.Services.ZakatRow>
+@{
+    var year = (int)ViewData["Year"]!;
+    ViewData["Title"] = $"Zakat — {year}";
+    Layout = "_InvestProLayout";
+    var totalZakat = Model.Sum(r => r.ZakatEligibleAmount);
+}
+
+<div class="d-flex justify-content-between align-items-start mb-3 gap-2 flex-wrap">
+    <div>
+        <a href="/investpro/admin/reports" class="btn btn-sm btn-outline-secondary mb-2">← Reports</a>
+        <h4 class="mb-1">Annual Zakat Report — @year</h4>
+        <small class="text-muted">Per-partner zakat-eligible base from investments closed this year. Informational only — partners decide their own zakat.</small>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/investpro/admin/reports/zakat?year=@year&format=pdf" class="btn btn-sm btn-outline-danger"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
+        <a href="/investpro/admin/reports/zakat?year=@year&format=xlsx" class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-excel"></i> Excel</a>
+        <a href="/investpro/admin/reports/zakat?year=@year&format=csv" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-text"></i> CSV</a>
+    </div>
+</div>
+
+<form method="get" class="card shadow-sm mb-3">
+    <div class="card-body py-2 d-flex gap-2 align-items-center">
+        <label class="form-label mb-0 small">Year:</label>
+        <input type="number" name="year" value="@year" min="2020" max="2099" class="form-control form-control-sm" style="width:100px" />
+        <button type="submit" class="btn btn-sm btn-secondary">Refresh</button>
+        <span class="ms-auto small text-muted">Total Zakat Base: <strong class="text-success">@totalZakat.ToString("N2") BDT</strong></span>
+    </div>
+</form>
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light small">
+                <tr>
+                    <th>Partner</th>
+                    <th>NID</th>
+                    <th>Investment</th>
+                    <th>Closed</th>
+                    <th class="text-end">Capital</th>
+                    <th class="text-end">Profit Share</th>
+                    <th class="text-end">Zakat Base</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr><td colspan="7" class="text-center text-muted py-3">No closed investments with positive zakat base in @year.</td></tr>
+                }
+                @foreach (var r in Model)
+                {
+                    <tr>
+                        <td class="fw-medium">@r.PartnerName</td>
+                        <td class="small text-muted">@(r.PartnerNid ?? "—")</td>
+                        <td><strong>@r.InvestmentCode</strong></td>
+                        <td class="small text-muted">@r.ClosedAt.ToString("yyyy-MM-dd")</td>
+                        <td class="text-end">@r.CapitalContributed.ToString("N2")</td>
+                        <td class="text-end text-success">@r.ProfitShareAmount.ToString("N2")</td>
+                        <td class="text-end fw-bold">@r.ZakatEligibleAmount.ToString("N2")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

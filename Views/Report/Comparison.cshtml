@@ -1,0 +1,69 @@
+@model List<FlexCms.InvestPro.Services.ComparisonRow>
+@{
+    var inv = ViewData["Investment"] as Investment;
+    ViewData["Title"] = $"Comparison — {inv?.Code}";
+    Layout = "_InvestProLayout";
+}
+
+<div class="d-flex justify-content-between align-items-start mb-3 gap-2 flex-wrap">
+    <div>
+        <a href="/investpro/admin/reports" class="btn btn-sm btn-outline-secondary mb-2">← Reports</a>
+        <h4 class="mb-1">Planned vs Actual — @inv!.Code <span class="text-muted fw-normal">@inv.Name</span></h4>
+        <small class="text-muted">Side-by-side: what the contract said vs what actually landed.</small>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/investpro/admin/reports/comparison/@inv.Id?format=pdf" class="btn btn-sm btn-outline-danger"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
+        <a href="/investpro/admin/reports/comparison/@inv.Id?format=xlsx" class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-excel"></i> Excel</a>
+        <a href="/investpro/admin/reports/comparison/@inv.Id?format=csv" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-text"></i> CSV</a>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light small">
+                <tr>
+                    <th rowspan="2" class="align-middle">Partner</th>
+                    <th rowspan="2" class="align-middle">NID</th>
+                    <th colspan="3" class="text-center border-end">Planned</th>
+                    <th colspan="2" class="text-center border-end">Actual Inputs</th>
+                    <th colspan="3" class="text-center">Outcome</th>
+                </tr>
+                <tr>
+                    <th class="text-end">Capital</th>
+                    <th class="text-end">Labor</th>
+                    <th class="text-end border-end">Profit %</th>
+                    <th class="text-end">Capital</th>
+                    <th class="text-end border-end">Labor</th>
+                    <th class="text-end">+Profit</th>
+                    <th class="text-end">−Loss</th>
+                    <th class="text-end">Settlement</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Any())
+                {
+                    <tr><td colspan="10" class="text-center text-muted py-3">No comparison rows. (Investment must be closed and have a snapshot.)</td></tr>
+                }
+                @foreach (var r in Model)
+                {
+                    <tr>
+                        <td class="fw-medium">@r.PartnerName</td>
+                        <td class="small text-muted">@(r.PartnerNid ?? "—")</td>
+                        <td class="text-end">@r.PlannedCapital.ToString("N2")</td>
+                        <td class="text-end">@r.PlannedLaborValue.ToString("N2")</td>
+                        <td class="text-end border-end">@r.ProfitSharePercent.ToString("0.##")%</td>
+                        <td class="text-end @(r.ActualCapitalContributed != r.PlannedCapital ? "text-warning fw-medium" : "")">@r.ActualCapitalContributed.ToString("N2")</td>
+                        <td class="text-end border-end @(r.ActualLaborValueContributed != r.PlannedLaborValue ? "text-warning fw-medium" : "")">@r.ActualLaborValueContributed.ToString("N2")</td>
+                        <td class="text-end text-success">@(r.ProfitShareAmount?.ToString("N2") ?? "—")</td>
+                        <td class="text-end text-danger">@(r.LossShareAmount?.ToString("N2") ?? "—")</td>
+                        <td class="text-end fw-bold">@(r.FinalSettlementAmount?.ToString("N2") ?? "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer small text-muted">
+        Yellow cells indicate planned vs actual mismatch on capital or labor input.
+    </div>
+</div>

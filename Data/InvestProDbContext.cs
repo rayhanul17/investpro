@@ -61,6 +61,7 @@ public class InvestProDbContext : DbContext
             e.Property(x => x.Notes).HasMaxLength(2000);
             e.HasIndex(x => x.Phone);
             e.HasIndex(x => x.Nid);
+            e.HasIndex(x => x.UserId).IsUnique().HasFilter("\"UserId\" IS NOT NULL");
         });
 
         modelBuilder.Entity<ExpenseCategory>(e =>
@@ -322,6 +323,15 @@ public class Partner : BaseEfEntity
     public string? NomineeRelation { get; set; }
     public string? Notes { get; set; }
     public bool IsActive { get; set; } = true;
+    /// <summary>
+    /// Link to the app-user identity that may log in AS this partner.
+    /// Required for close/reopen/approval decision endpoints to bind the
+    /// caller to a partner row (otherwise any user holding the
+    /// .decide permission could vote on behalf of another partner).
+    /// Null when the partner has no user account — only SuperAdmin can
+    /// record their votes in that case.
+    /// </summary>
+    public Guid? UserId { get; set; }
 }
 
 public class ExpenseCategory : BaseEfEntity

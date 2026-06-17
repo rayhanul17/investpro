@@ -34,12 +34,28 @@ public class PartnerService
         await using (db) return await repo.GetByIdAsync(id, ct);
     }
 
+    /// <summary>
+    /// Resolve which Partner record (if any) belongs to the given app user.
+    /// Used by close/reopen/approval decision endpoints to bind the caller's
+    /// identity to a partner row before recording a vote — defeats the
+    /// "submit a decision as someone else" IDOR by ignoring the PartnerId
+    /// the form supplies.
+    /// </summary>
+    public async Task<Partner?> GetByUserIdAsync(Guid userId, CancellationToken ct = default)
+    {
+        var (db, _) = Open();
+        await using (db)
+            return await db.Partners
+                .FirstOrDefaultAsync(x => x.UserId == userId && x.Status != EntityStatus.Deleted, ct);
+    }
+
     public async Task<Partner> CreateAsync(Partner model, CancellationToken ct = default)
     {
         var (db, repo) = Open();
         await using (db)
         {
             if (model.Id == Guid.Empty) model.Id = Guid.NewGuid();
+            if (model.UserId == Guid.Empty) model.UserId = null;
             await repo.AddAsync(model, ct);
             await db.SaveChangesAsync(ct);
         }
@@ -67,6 +83,7 @@ public class PartnerService
             row.NomineeRelation = input.NomineeRelation?.Trim();
             row.Notes           = input.Notes?.Trim();
             row.IsActive        = input.IsActive;
+            row.UserId          = input.UserId == Guid.Empty ? null : input.UserId;
             await repo.UpdateAsync(row, ct);
             await db.SaveChangesAsync(ct);
             return true;

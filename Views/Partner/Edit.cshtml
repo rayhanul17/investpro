@@ -96,6 +96,19 @@
     </div>
 
     <div class="card shadow-sm mb-3">
+        <div class="card-header"><strong>App Account Link</strong></div>
+        <div class="card-body">
+            <label asp-for="UserId" class="form-label">Linked User ID</label>
+            <input asp-for="UserId" class="form-control font-monospace" placeholder="00000000-0000-0000-0000-000000000000" />
+            <div class="form-text">
+                Optional. If this partner has a user account in the system, paste their user id here.
+                Required so the partner can approve / reject close, reopen, and ledger requests as themselves.
+                Without it, only a SuperAdmin can record decisions on their behalf.
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
         <div class="card-body">
             <div class="mb-3">
                 <label asp-for="Notes" class="form-label">Notes</label>

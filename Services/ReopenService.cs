@@ -2,14 +2,14 @@ using FlexCms.Framework.Modules;
 using FlexCms.Framework.Modules.Attributes;
 using FlexCms.InvestPro.Data;
 using Microsoft.EntityFrameworkCore;
-using EntityStatus = FlexCms.Framework.Db.EntityStatus;
 
 namespace FlexCms.InvestPro.Services;
 
 /// <summary>
-/// Orchestrates the Closed -> Active "reopen" flow. Triggered when admins
-/// discover a snapshot is wrong (typically a wrong profit/loss %) and need
-/// to redo the close with corrected contract numbers.
+/// Orchestrates the Closed -> Active "reopen" flow. Owns no entities
+/// directly — composes <see cref="ReopenRequestService"/>,
+/// <see cref="InvestmentSnapshotService"/>, and <see cref="InvestmentPartnerService"/>
+/// inside a single DbContext transaction.
 ///
 /// <para>
 /// All partners must approve to reopen. The current Active snapshot stays
@@ -22,7 +22,21 @@ namespace FlexCms.InvestPro.Services;
 public class ReopenService
 {
     private readonly ModuleActivationOptions _opts;
-    public ReopenService(ModuleActivationOptions opts) => _opts = opts;
+    private readonly ReopenRequestService _requests;
+    private readonly InvestmentSnapshotService _snapshots;
+    private readonly InvestmentPartnerService _partners;
+
+    public ReopenService(
+        ModuleActivationOptions opts,
+        ReopenRequestService requests,
+        InvestmentSnapshotService snapshots,
+        InvestmentPartnerService partners)
+    {
+        _opts = opts;
+        _requests = requests;
+        _snapshots = snapshots;
+        _partners = partners;
+    }
 
     private InvestProDbContext OpenDb() =>
         (InvestProDbContext)new InvestProModule().CreateMigrationContext(_opts.ConnectionString, _opts.Provider)!;
@@ -39,22 +53,13 @@ public class ReopenService
         if (inv.LifecycleStatus != InvestmentLifecycle.Closed)
             return (false, $"Reopen is only available for Closed investments (current: {inv.LifecycleStatus}).", null);
 
-        var openRequest = await db.ReopenRequests
-            .AnyAsync(r => r.InvestmentId == investmentId
-                           && r.RequestStatus == ReopenRequestStatus.Pending
-                           && r.Status != EntityStatus.Deleted, ct);
-        if (openRequest) return (false, "A reopen request is already pending for this investment.", null);
+        if (await _requests.HasPendingForInvestmentOnContextAsync(db, investmentId, ct))
+            return (false, "A reopen request is already pending for this investment.", null);
 
-        var currentSnap = await db.InvestmentSnapshots
-            .FirstOrDefaultAsync(s => s.InvestmentId == investmentId
-                                      && s.SnapshotStatus == SnapshotStatus.Active
-                                      && s.Status != EntityStatus.Deleted, ct);
+        var currentSnap = await _snapshots.GetActiveByInvestmentOnContextAsync(db, investmentId, ct);
         if (currentSnap is null) return (false, "No active snapshot to reopen.", null);
 
-        var partners = await db.InvestmentPartners
-            .Where(p => p.InvestmentId == investmentId && p.Status != EntityStatus.Deleted)
-            .Select(p => p.PartnerId)
-            .ToListAsync(ct);
+        var partnerIds = await _partners.GetPartnerIdsForInvestmentOnContextAsync(db, investmentId, ct);
 
         var req = new ReopenRequest
         {
@@ -66,11 +71,11 @@ public class ReopenService
             Reason = reason.Trim(),
             RequestStatus = ReopenRequestStatus.Pending,
         };
-        db.ReopenRequests.Add(req);
+        _requests.StageRequestOnContext(db, req);
 
-        foreach (var pid in partners)
+        foreach (var pid in partnerIds)
         {
-            db.ReopenApprovals.Add(new ReopenApproval
+            _requests.StageApprovalOnContext(db, new ReopenApproval
             {
                 Id = Guid.NewGuid(),
                 ReopenRequestId = req.Id,
@@ -83,23 +88,14 @@ public class ReopenService
         return (true, null, req);
     }
 
-    public async Task<List<ReopenRequest>> GetByInvestmentAsync(Guid investmentId, CancellationToken ct = default)
-    {
-        await using var db = OpenDb();
-        return await db.ReopenRequests
-            .Include(r => r.Approvals)
-            .Where(r => r.InvestmentId == investmentId && r.Status != EntityStatus.Deleted)
-            .OrderByDescending(r => r.InitiatedAt)
-            .ToListAsync(ct);
-    }
+    public Task<List<ReopenRequest>> GetByInvestmentAsync(Guid investmentId, CancellationToken ct = default)
+        => _requests.GetByInvestmentAsync(investmentId, ct);
 
-    public async Task<ReopenRequest?> GetByIdAsync(Guid id, CancellationToken ct = default)
-    {
-        await using var db = OpenDb();
-        return await db.ReopenRequests
-            .Include(r => r.Approvals)
-            .FirstOrDefaultAsync(r => r.Id == id, ct);
-    }
+    public Task<ReopenRequest?> GetByIdAsync(Guid id, CancellationToken ct = default)
+        => _requests.GetByIdAsync(id, ct);
+
+    public Task<bool> HasApprovedForInvestmentAsync(Guid investmentId, CancellationToken ct = default)
+        => _requests.HasApprovedForInvestmentAsync(investmentId, ct);
 
     public async Task<(bool ok, string? error, ReopenRequestStatus finalStatus, bool transitioned)> DecideAsync(
         Guid requestId, Guid partnerId, DecisionKind decision, string? comment, CancellationToken ct = default)
@@ -108,9 +104,7 @@ public class ReopenService
             return (false, "Pending is not a valid decision.", ReopenRequestStatus.Pending, false);
 
         await using var db = OpenDb();
-        var req = await db.ReopenRequests
-            .Include(r => r.Approvals)
-            .FirstOrDefaultAsync(r => r.Id == requestId, ct);
+        var req = await _requests.GetByIdOnContextAsync(db, requestId, ct);
         if (req is null) return (false, "Reopen request not found.", ReopenRequestStatus.Pending, false);
         if (req.RequestStatus != ReopenRequestStatus.Pending)
             return (false, $"Request is already {req.RequestStatus}.", req.RequestStatus, false);
@@ -147,12 +141,9 @@ public class ReopenService
         inv.LifecycleStatus = InvestmentLifecycle.Active;
         inv.ClosedAt = null;
 
-        // Stamp the snapshot's superseded reason now (the timestamp is set
-        // later, at the moment the reclose's new snapshot is generated).
-        var snap = await db.InvestmentSnapshots
-            .FirstOrDefaultAsync(s => s.Id == req.CurrentSnapshotId, ct);
-        if (snap is not null)
-            snap.SupersededReason = req.Reason;
+        // Stamp the snapshot's superseded reason now (the timestamp + status
+        // flip are set later, at the moment the reclose generates v2).
+        await _snapshots.StampSupersededReasonOnContextAsync(db, req.CurrentSnapshotId, req.Reason, ct);
 
         await db.SaveChangesAsync(ct);
         return (true, null, req.RequestStatus, true);

@@ -2,22 +2,50 @@ using FlexCms.Framework.Modules;
 using FlexCms.Framework.Modules.Attributes;
 using FlexCms.InvestPro.Data;
 using Microsoft.EntityFrameworkCore;
-using EntityStatus = FlexCms.Framework.Db.EntityStatus;
 
 namespace FlexCms.InvestPro.Services;
 
 /// <summary>
 /// Orchestrates the lifecycle transition Active -> Closing -> Closed and the
-/// snapshot it produces. Snapshot rows are written once and never updated —
-/// edits to investments, partners, or ledger entries after close cannot
-/// shift these numbers. The math itself lives in <see cref="CalculationHelper"/>
-/// so each formula stays single-purpose and individually verifiable.
+/// snapshot it produces. Owns no entities directly — composes
+/// <see cref="CloseRequestService"/>, <see cref="InvestmentSnapshotService"/>,
+/// <see cref="InvestmentPartnerService"/>, and the four ledger services
+/// inside a single DbContext transaction. The math itself lives in
+/// <see cref="CalculationHelper"/> so each formula stays single-purpose.
+/// Snapshot rows are written once and never updated — edits to investments,
+/// partners, or ledger entries after close cannot shift these numbers.
 /// </summary>
 [FcmsScoped]
 public class CloseService
 {
     private readonly ModuleActivationOptions _opts;
-    public CloseService(ModuleActivationOptions opts) => _opts = opts;
+    private readonly CloseRequestService _requests;
+    private readonly InvestmentSnapshotService _snapshots;
+    private readonly InvestmentPartnerService _partners;
+    private readonly CapitalContributionService _capitals;
+    private readonly LaborContributionService _labors;
+    private readonly ExpenseEntryService _expenses;
+    private readonly RevenueEntryService _revenues;
+
+    public CloseService(
+        ModuleActivationOptions opts,
+        CloseRequestService requests,
+        InvestmentSnapshotService snapshots,
+        InvestmentPartnerService partners,
+        CapitalContributionService capitals,
+        LaborContributionService labors,
+        ExpenseEntryService expenses,
+        RevenueEntryService revenues)
+    {
+        _opts = opts;
+        _requests = requests;
+        _snapshots = snapshots;
+        _partners = partners;
+        _capitals = capitals;
+        _labors = labors;
+        _expenses = expenses;
+        _revenues = revenues;
+    }
 
     private InvestProDbContext OpenDb() =>
         (InvestProDbContext)new InvestProModule().CreateMigrationContext(_opts.ConnectionString, _opts.Provider)!;
@@ -35,15 +63,11 @@ public class CloseService
         if (inv.LifecycleStatus != InvestmentLifecycle.Active)
             return (false, $"Only Active investments can be closed (current state: {inv.LifecycleStatus}).", null);
 
-        var openRequest = await db.CloseRequests
-            .AnyAsync(r => r.InvestmentId == investmentId && r.RequestStatus == CloseRequestStatus.Pending && r.Status != EntityStatus.Deleted, ct);
-        if (openRequest) return (false, "A close request is already pending for this investment.", null);
+        if (await _requests.HasPendingForInvestmentOnContextAsync(db, investmentId, ct))
+            return (false, "A close request is already pending for this investment.", null);
 
-        var partners = await db.InvestmentPartners
-            .Where(p => p.InvestmentId == investmentId && p.Status != EntityStatus.Deleted)
-            .Select(p => p.PartnerId)
-            .ToListAsync(ct);
-        if (partners.Count == 0) return (false, "Investment has no partner contracts to approve closing.", null);
+        var partnerIds = await _partners.GetPartnerIdsForInvestmentOnContextAsync(db, investmentId, ct);
+        if (partnerIds.Count == 0) return (false, "Investment has no partner contracts to approve closing.", null);
 
         var req = new CloseRequest
         {
@@ -54,11 +78,11 @@ public class CloseService
             RequestStatus = CloseRequestStatus.Pending,
             Notes = notes?.Trim(),
         };
-        db.CloseRequests.Add(req);
+        _requests.StageRequestOnContext(db, req);
 
-        foreach (var pid in partners)
+        foreach (var pid in partnerIds)
         {
-            db.CloseApprovals.Add(new CloseApproval
+            _requests.StageApprovalOnContext(db, new CloseApproval
             {
                 Id = Guid.NewGuid(),
                 CloseRequestId = req.Id,
@@ -72,23 +96,11 @@ public class CloseService
         return (true, null, req);
     }
 
-    public async Task<List<CloseRequest>> GetByInvestmentAsync(Guid investmentId, CancellationToken ct = default)
-    {
-        await using var db = OpenDb();
-        return await db.CloseRequests
-            .Include(r => r.Approvals)
-            .Where(r => r.InvestmentId == investmentId && r.Status != EntityStatus.Deleted)
-            .OrderByDescending(r => r.InitiatedAt)
-            .ToListAsync(ct);
-    }
+    public Task<List<CloseRequest>> GetByInvestmentAsync(Guid investmentId, CancellationToken ct = default)
+        => _requests.GetByInvestmentAsync(investmentId, ct);
 
-    public async Task<CloseRequest?> GetByIdAsync(Guid id, CancellationToken ct = default)
-    {
-        await using var db = OpenDb();
-        return await db.CloseRequests
-            .Include(r => r.Approvals)
-            .FirstOrDefaultAsync(r => r.Id == id, ct);
-    }
+    public Task<CloseRequest?> GetByIdAsync(Guid id, CancellationToken ct = default)
+        => _requests.GetByIdAsync(id, ct);
 
     /// <summary>
     /// Record one partner's decision on a pending close request.
@@ -104,9 +116,7 @@ public class CloseService
         if (decision == DecisionKind.Pending) return (false, "Pending is not a valid decision.", CloseRequestStatus.Pending, null);
 
         await using var db = OpenDb();
-        var req = await db.CloseRequests
-            .Include(r => r.Approvals)
-            .FirstOrDefaultAsync(r => r.Id == closeRequestId, ct);
+        var req = await _requests.GetByIdOnContextAsync(db, closeRequestId, ct);
         if (req is null) return (false, "Close request not found.", CloseRequestStatus.Pending, null);
         if (req.RequestStatus != CloseRequestStatus.Pending)
             return (false, $"Close request is already {req.RequestStatus}.", req.RequestStatus, null);
@@ -137,14 +147,14 @@ public class CloseService
             return (true, null, req.RequestStatus, null);
         }
 
-        // All partners approved — finalise + snapshot.
+        // All partners approved — finalise + snapshot in the same transaction.
         req.RequestStatus = CloseRequestStatus.Approved;
         req.FinalizedAt = DateTime.UtcNow;
         inv.LifecycleStatus = InvestmentLifecycle.Closed;
         inv.ClosedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
 
         var snapshotId = await GenerateSnapshotAsync(db, inv, userId, ct);
+        await db.SaveChangesAsync(ct);
         return (true, null, req.RequestStatus, snapshotId);
     }
 
@@ -152,38 +162,19 @@ public class CloseService
     /// Build the immutable snapshot for an investment. Walks each input
     /// through CalculationHelper one step at a time so the audit trail is
     /// linear and easy to step through in the debugger.
+    /// Caller is responsible for SaveChangesAsync.
     /// </summary>
-    private static async Task<Guid> GenerateSnapshotAsync(InvestProDbContext db, Investment inv, Guid? userId, CancellationToken ct)
+    private async Task<Guid> GenerateSnapshotAsync(InvestProDbContext db, Investment inv, Guid? userId, CancellationToken ct)
     {
-        // ── 1. Pull approved-only ledger rows ───────────────────────────
-        var caps = await db.CapitalContributions
-            .Where(x => x.InvestmentId == inv.Id && x.Status != EntityStatus.Deleted)
-            .ToListAsync(ct);
-        var labs = await db.LaborContributions
-            .Where(x => x.InvestmentId == inv.Id && x.Status != EntityStatus.Deleted)
-            .ToListAsync(ct);
-        var exps = await db.Expenses
-            .Where(x => x.InvestmentId == inv.Id && x.Status != EntityStatus.Deleted)
-            .ToListAsync(ct);
-        var revs = await db.Revenues
-            .Where(x => x.InvestmentId == inv.Id && x.Status != EntityStatus.Deleted)
-            .ToListAsync(ct);
+        // ── 1. Pull approved-only ledger rows via each ledger service ───
+        var caps = await _capitals.GetByInvestmentOnContextAsync(db, inv.Id, ct);
+        var labs = await _labors.GetByInvestmentOnContextAsync(db, inv.Id, ct);
+        var exps = await _expenses.GetByInvestmentOnContextAsync(db, inv.Id, ct);
+        var revs = await _revenues.GetByInvestmentOnContextAsync(db, inv.Id, ct);
+        var contracts = await _partners.GetByInvestmentOnContextAsync(db, inv.Id, ct);
 
-        var contracts = await db.InvestmentPartners
-            .Include(c => c.Partner)
-            .Where(c => c.InvestmentId == inv.Id && c.Status != EntityStatus.Deleted)
-            .ToListAsync(ct);
-
-        // ── 1.5. Previous snapshot (if this is a reclose after reopen) ──
-        // The most recent Active snapshot for this investment becomes the
-        // baseline for the per-partner adjustment delta + gets stamped
-        // Superseded once the new snapshot is built.
-        var previousSnapshot = await db.InvestmentSnapshots
-            .Include(s => s.PartnerDetails)
-            .FirstOrDefaultAsync(s => s.InvestmentId == inv.Id
-                                      && s.SnapshotStatus == SnapshotStatus.Active
-                                      && s.Status != EntityStatus.Deleted, ct);
-
+        // ── 1.5. Previous Active snapshot (set on reclose after reopen) ─
+        var previousSnapshot = await _snapshots.GetActiveByInvestmentOnContextAsync(db, inv.Id, ct);
         int version = (previousSnapshot?.Version ?? 0) + 1;
 
         // ── 2. Totals via CalculationHelper ─────────────────────────────
@@ -213,7 +204,7 @@ public class CloseService
             SnapshotStatus = SnapshotStatus.Active,
             PreviousSnapshotId = previousSnapshot?.Id,
         };
-        db.InvestmentSnapshots.Add(snap);
+        _snapshots.StageSnapshotOnContext(db, snap);
 
         // ── 3. Per-partner breakdown ────────────────────────────────────
         var details = new List<SnapshotPartnerDetail>();
@@ -234,9 +225,6 @@ public class CloseService
             decimal settlement  = CalculationHelper.CalcPartnerSettlement(partnerCapital, profitShare, lossShare, withdrawals);
             decimal zakatBase   = CalculationHelper.CalcZakatEligibleBase(partnerCapital, profitShare);
 
-            // Reclose: find this partner's previous settlement to compute
-            // the adjustment delta. First close: previous = 0, delta = full
-            // settlement (matches the old behaviour exactly).
             decimal previousSettlement = previousSnapshot?
                 .PartnerDetails
                 .FirstOrDefault(pd => pd.PartnerId == c.PartnerId)
@@ -267,20 +255,17 @@ public class CloseService
                 AdjustmentAmount = adjustment,
             };
             details.Add(detail);
-            db.SnapshotPartnerDetails.Add(detail);
+            _snapshots.StagePartnerDetailOnContext(db, detail);
 
             // Payout seeding:
             // - v1 close: seed Pending payout = full settlement (legacy shape).
             // - v2+ close: seed Pending adjustment payout = absolute Δ,
-            //              direction Outgoing if Δ>0 (we owe partner more),
-            //              Incoming if Δ<0 (partner owes back).
-            //   The original headline payouts from v1 keep their own state
-            //   (Paid / Pending) — they're not touched here.
+            //              direction Outgoing if Δ>0, Incoming if Δ<0.
             if (previousSnapshot is null)
             {
                 if (settlement > 0m)
                 {
-                    db.Payouts.Add(new Payout
+                    _snapshots.StagePayoutOnContext(db, new Payout
                     {
                         Id = Guid.NewGuid(),
                         SnapshotId = snap.Id,
@@ -297,7 +282,7 @@ public class CloseService
             }
             else if (adjustment != 0m)
             {
-                db.Payouts.Add(new Payout
+                _snapshots.StagePayoutOnContext(db, new Payout
                 {
                     Id = Guid.NewGuid(),
                     SnapshotId = snap.Id,
@@ -319,52 +304,24 @@ public class CloseService
 
         // ── 5. Demote the previous snapshot (if any) ────────────────────
         if (previousSnapshot is not null)
-        {
-            previousSnapshot.SnapshotStatus = SnapshotStatus.Superseded;
-            previousSnapshot.SupersededAt = DateTime.UtcNow;
-            // SupersededReason is set by the reopen flow before this point;
-            // here we just stamp the timestamp.
-        }
+            _snapshots.DemoteSupersedingOnContext(previousSnapshot);
 
-        await db.SaveChangesAsync(ct);
         return snap.Id;
     }
 
-    public async Task<InvestmentSnapshot?> GetSnapshotByInvestmentAsync(Guid investmentId, CancellationToken ct = default)
-    {
-        await using var db = OpenDb();
-        // Pick the Active snapshot (post-reopen there may be Superseded
-        // rows too — those open via /snapshot/{id} only, not the default
-        // /snapshot landing).
-        return await db.InvestmentSnapshots
-            .Include(s => s.PartnerDetails)
-            .FirstOrDefaultAsync(s => s.InvestmentId == investmentId
-                                      && s.SnapshotStatus == SnapshotStatus.Active
-                                      && s.Status != EntityStatus.Deleted, ct);
-    }
+    // ── Snapshot proxy methods (preserve old CloseService surface) ──────
+    // Older callers (SnapshotController, InvestmentController) still ask
+    // CloseService for snapshots. These keep the public surface stable
+    // while the storage actually lives in InvestmentSnapshotService.
 
-    /// <summary>Every snapshot for the investment, newest first. Used by the history viewer.</summary>
-    public async Task<List<InvestmentSnapshot>> GetSnapshotHistoryAsync(Guid investmentId, CancellationToken ct = default)
-    {
-        await using var db = OpenDb();
-        return await db.InvestmentSnapshots
-            .Where(s => s.InvestmentId == investmentId && s.Status != EntityStatus.Deleted)
-            .OrderByDescending(s => s.Version)
-            .ToListAsync(ct);
-    }
+    public Task<InvestmentSnapshot?> GetSnapshotByInvestmentAsync(Guid investmentId, CancellationToken ct = default)
+        => _snapshots.GetActiveByInvestmentAsync(investmentId, ct);
 
-    public async Task<InvestmentSnapshot?> GetSnapshotByIdAsync(Guid id, CancellationToken ct = default)
-    {
-        await using var db = OpenDb();
-        return await db.InvestmentSnapshots
-            .Include(s => s.PartnerDetails)
-            .FirstOrDefaultAsync(s => s.Id == id, ct);
-    }
+    public Task<List<InvestmentSnapshot>> GetSnapshotHistoryAsync(Guid investmentId, CancellationToken ct = default)
+        => _snapshots.GetHistoryAsync(investmentId, ct);
 
-    /// <summary>Recompute the stored checksum and compare. Returns true if intact.</summary>
-    public bool VerifyChecksum(InvestmentSnapshot snap)
-    {
-        var fresh = CalculationHelper.CalcChecksum(snap, snap.PartnerDetails);
-        return string.Equals(fresh, snap.Checksum, StringComparison.OrdinalIgnoreCase);
-    }
+    public Task<InvestmentSnapshot?> GetSnapshotByIdAsync(Guid id, CancellationToken ct = default)
+        => _snapshots.GetByIdAsync(id, ct);
+
+    public bool VerifyChecksum(InvestmentSnapshot snap) => _snapshots.VerifyChecksum(snap);
 }

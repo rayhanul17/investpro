@@ -99,7 +99,7 @@ public class InvestmentController : Controller
     }
 
     [HttpGet("{id:guid}")]
-    public async Task<IActionResult> Detail(Guid id, [FromServices] PartnerService partnerPool, [FromServices] ReopenService reopenSvc, CancellationToken ct)
+    public async Task<IActionResult> Detail(Guid id, [FromServices] PartnerService partnerPool, [FromServices] ReopenRequestService reopens, CancellationToken ct)
     {
         var inv = await _service.GetByIdAsync(id, ct);
         if (inv is null) return NotFound();
@@ -111,12 +111,9 @@ public class InvestmentController : Controller
 
         // Post-reopen Active investments need the contract editor + Close
         // button visible again. Signal: an Approved reopen request exists
-        // whose snapshot is still Active (i.e. reclose hasn't happened yet).
-        // The snapshot stays Active until the reclose generates v2 — only
-        // then does it flip to Superseded.
-        var reopens = await reopenSvc.GetByInvestmentAsync(id, ct);
+        // for this investment, meaning the reclose hasn't happened yet.
         var isPostReopen = inv.LifecycleStatus == InvestmentLifecycle.Active
-                           && reopens.Any(r => r.RequestStatus == ReopenRequestStatus.Approved);
+                           && await reopens.HasApprovedForInvestmentAsync(id, ct);
         ViewData["IsContractEditable"] = inv.LifecycleStatus == InvestmentLifecycle.Draft || isPostReopen;
         ViewData["IsPostReopen"]       = isPostReopen;
         return View(inv);

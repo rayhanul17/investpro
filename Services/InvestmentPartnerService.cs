@@ -12,7 +12,12 @@ namespace FlexCms.InvestPro.Services;
 public class InvestmentPartnerService
 {
     private readonly ModuleActivationOptions _opts;
-    public InvestmentPartnerService(ModuleActivationOptions opts) => _opts = opts;
+    private readonly ReopenRequestService _reopens;
+    public InvestmentPartnerService(ModuleActivationOptions opts, ReopenRequestService reopens)
+    {
+        _opts = opts;
+        _reopens = reopens;
+    }
 
     private InvestProDbContext OpenDb() =>
         (InvestProDbContext)new InvestProModule().CreateMigrationContext(_opts.ConnectionString, _opts.Provider)!;
@@ -36,24 +41,33 @@ public class InvestmentPartnerService
             .FirstOrDefaultAsync(x => x.Id == id, ct);
     }
 
+    // ── Shared-context queries (for orchestrators like CloseService) ────
+
+    public Task<List<InvestmentPartner>> GetByInvestmentOnContextAsync(InvestProDbContext db, Guid investmentId, CancellationToken ct = default)
+        => db.InvestmentPartners
+            .Include(c => c.Partner)
+            .Where(c => c.InvestmentId == investmentId && c.Status != EntityStatus.Deleted)
+            .ToListAsync(ct);
+
+    public Task<List<Guid>> GetPartnerIdsForInvestmentOnContextAsync(InvestProDbContext db, Guid investmentId, CancellationToken ct = default)
+        => db.InvestmentPartners
+            .Where(p => p.InvestmentId == investmentId && p.Status != EntityStatus.Deleted)
+            .Select(p => p.PartnerId)
+            .ToListAsync(ct);
+
     /// <summary>
     /// Contract edits are normally Draft-only, but after an approved reopen
     /// the investment transitions back to Active and the contract MUST be
     /// editable so the admin can fix whatever was wrong. We detect post-
-    /// reopen state by looking for an Approved ReopenRequest on the investment
-    /// (the Active snapshot it points to stays Active until the reclose
-    /// generates v2 and demotes it).
+    /// reopen state by asking <see cref="ReopenRequestService"/> for an
+    /// Approved reopen (the Active snapshot it points to stays Active until
+    /// the reclose generates v2 and demotes it).
     /// </summary>
-    private static async Task<bool> IsContractEditableAsync(InvestProDbContext db, Investment inv, CancellationToken ct)
+    private async Task<bool> IsContractEditableAsync(InvestProDbContext db, Investment inv, CancellationToken ct)
     {
         if (inv.LifecycleStatus == InvestmentLifecycle.Draft) return true;
         if (inv.LifecycleStatus == InvestmentLifecycle.Active)
-        {
-            return await db.ReopenRequests
-                .AnyAsync(r => r.InvestmentId == inv.Id
-                               && r.RequestStatus == ReopenRequestStatus.Approved
-                               && r.Status != EntityStatus.Deleted, ct);
-        }
+            return await _reopens.HasApprovedForInvestmentOnContextAsync(db, inv.Id, ct);
         return false;
     }
 

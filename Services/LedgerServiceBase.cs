@@ -45,6 +45,15 @@ public abstract class LedgerServiceBase<T> where T : LedgerEntryBase, new()
             .FirstOrDefaultAsync(x => x.Id == id, ct);
     }
 
+    /// <summary>
+    /// Shared-context variant for orchestrators (e.g. <see cref="CloseService"/>)
+    /// that load every ledger for a snapshot inside one transaction.
+    /// </summary>
+    public Task<List<T>> GetByInvestmentOnContextAsync(InvestProDbContext db, Guid investmentId, CancellationToken ct = default)
+        => Set(db)
+            .Where(x => x.InvestmentId == investmentId && x.Status != EntityStatus.Deleted)
+            .ToListAsync(ct);
+
     protected async Task<(bool ok, string? error)> EnsureInvestmentEditableAsync(InvestProDbContext db, Guid investmentId, CancellationToken ct)
     {
         var inv = await db.Investments.FirstOrDefaultAsync(x => x.Id == investmentId, ct);

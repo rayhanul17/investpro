@@ -10,14 +10,14 @@ namespace FlexCms.InvestPro.Controllers;
 [FcmsAuthorize(InvestProPermissions.SnapshotView)]
 public class SnapshotController : Controller
 {
-    private readonly CloseService _close;
+    private readonly InvestmentSnapshotService _snapshots;
     private readonly PayoutService _payouts;
     private readonly InvestmentService _investments;
     private readonly IFcmsLogService _log;
 
-    public SnapshotController(CloseService close, PayoutService payouts, InvestmentService investments, IFcmsLogService log)
+    public SnapshotController(InvestmentSnapshotService snapshots, PayoutService payouts, InvestmentService investments, IFcmsLogService log)
     {
-        _close = close;
+        _snapshots = snapshots;
         _payouts = payouts;
         _investments = investments;
         _log = log;
@@ -28,7 +28,7 @@ public class SnapshotController : Controller
     {
         var inv = await _investments.GetByIdAsync(investmentId, ct);
         if (inv is null) return NotFound();
-        var snap = await _close.GetSnapshotByInvestmentAsync(investmentId, ct);
+        var snap = await _snapshots.GetActiveByInvestmentAsync(investmentId, ct);
         if (snap is null) return NotFound("No snapshot for this investment yet.");
         return RedirectToAction(nameof(Detail), new { investmentId, id = snap.Id });
     }
@@ -36,15 +36,15 @@ public class SnapshotController : Controller
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Detail(Guid investmentId, Guid id, CancellationToken ct)
     {
-        var snap = await _close.GetSnapshotByIdAsync(id, ct);
+        var snap = await _snapshots.GetByIdAsync(id, ct);
         if (snap is null) return NotFound();
         var inv = await _investments.GetByIdAsync(investmentId, ct);
         var payouts = await _payouts.GetBySnapshotAsync(id, ct);
-        var history = await _close.GetSnapshotHistoryAsync(investmentId, ct);
+        var history = await _snapshots.GetHistoryAsync(investmentId, ct);
 
         ViewData["Investment"] = inv;
         ViewData["Payouts"]    = payouts;
-        ViewData["ChecksumOk"] = _close.VerifyChecksum(snap);
+        ViewData["ChecksumOk"] = _snapshots.VerifyChecksum(snap);
         ViewData["History"]    = history;
         return View(snap);
     }
@@ -54,7 +54,7 @@ public class SnapshotController : Controller
     {
         var inv = await _investments.GetByIdAsync(investmentId, ct);
         if (inv is null) return NotFound();
-        var snapshots = await _close.GetSnapshotHistoryAsync(investmentId, ct);
+        var snapshots = await _snapshots.GetHistoryAsync(investmentId, ct);
         ViewData["Investment"] = inv;
         return View(snapshots);
     }

@@ -35,15 +35,17 @@ public class AttachmentService
         _ => null,
     };
 
+    // Subfolder under the module's own wwwroot/uploads/ — the module id is
+    // already implied by the storage resolver, so we don't repeat it here.
     private static string FolderFor(AttachmentOwnerType owner) => owner switch
     {
-        AttachmentOwnerType.Partner    => "investpro/partners",
-        AttachmentOwnerType.Investment => "investpro/investments",
-        AttachmentOwnerType.Capital    => "investpro/capital",
-        AttachmentOwnerType.Labor      => "investpro/labor",
-        AttachmentOwnerType.Expense    => "investpro/expenses",
-        AttachmentOwnerType.Revenue    => "investpro/revenues",
-        _ => "investpro/misc",
+        AttachmentOwnerType.Partner    => "partners",
+        AttachmentOwnerType.Investment => "investments",
+        AttachmentOwnerType.Capital    => "capital",
+        AttachmentOwnerType.Labor      => "labor",
+        AttachmentOwnerType.Expense    => "expenses",
+        AttachmentOwnerType.Revenue    => "revenues",
+        _ => "misc",
     };
 
     public async Task<List<LedgerAttachment>> GetForOwnerAsync(AttachmentOwnerType ownerType, Guid ownerId, CancellationToken ct = default)
@@ -90,7 +92,12 @@ public class AttachmentService
         UploadResult result;
         try
         {
-            result = await _uploader.SaveAsync(file, FolderFor(ownerType), compress, ct);
+            result = await _uploader.SaveAsync(
+                file,
+                moduleId: InvestProModule.ModuleIdValue,
+                subfolder: FolderFor(ownerType),
+                compress: compress,
+                ct: ct);
         }
         catch (Exception ex)
         {
@@ -138,7 +145,7 @@ public class AttachmentService
         row.DeletedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
-        try { await _uploader.DeleteAsync(row.FilePath.TrimStart('/'), ct); }
+        try { await _uploader.DeleteAsync(InvestProModule.ModuleIdValue, row.FilePath, ct); }
         catch { /* best-effort */ }
 
         return (true, null, row);

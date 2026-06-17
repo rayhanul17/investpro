@@ -1,0 +1,201 @@
+@model InvestmentSnapshot
+@{
+    var inv = ViewData["Investment"] as Investment;
+    var payouts = ViewData["Payouts"] as List<Payout> ?? new();
+    var checksumOk = ViewData["ChecksumOk"] as bool? ?? false;
+    ViewData["Title"] = $"Snapshot — {Model.InvestmentCode}";
+    Layout = "_InvestProLayout";
+}
+
+<div class="d-flex justify-content-between align-items-start mb-3 gap-2 flex-wrap">
+    <div>
+        <a href="/investpro/admin/investments/@Model.InvestmentId" class="btn btn-sm btn-outline-secondary mb-2">← Investment</a>
+        <h4 class="mb-1"><i class="bi bi-shield-lock"></i> Closure Snapshot <span class="text-muted fw-normal">— @Model.InvestmentCode</span></h4>
+        <small class="text-muted">Immutable. Generated at close. Verify checksum on every read.</small>
+    </div>
+    <div class="text-end">
+        @if (checksumOk)
+        {
+            <span class="badge text-bg-success fs-6"><i class="bi bi-check-circle"></i> Checksum verified</span>
+        }
+        else
+        {
+            <span class="badge text-bg-danger fs-6"><i class="bi bi-exclamation-triangle"></i> CHECKSUM MISMATCH — data tampered</span>
+        }
+    </div>
+</div>
+
+@if (TempData["Success"] is string ok) { <div class="alert alert-success py-2">@ok</div> }
+@if (TempData["Error"]   is string er) { <div class="alert alert-danger py-2">@er</div> }
+
+<div class="card shadow-sm mb-3">
+    <div class="card-header"><strong>Investment Summary</strong></div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-3"><div class="small text-muted">Code</div><div class="fw-medium">@Model.InvestmentCode</div></div>
+            <div class="col-md-5"><div class="small text-muted">Name</div><div>@Model.InvestmentName</div></div>
+            <div class="col-md-2"><div class="small text-muted">Started</div><div class="small">@Model.InvestmentStartDate.ToString("yyyy-MM-dd")</div></div>
+            <div class="col-md-2"><div class="small text-muted">Closed</div><div class="small">@Model.ClosedAt.ToString("yyyy-MM-dd HH:mm")</div></div>
+
+            <div class="col-md-3"><div class="small text-muted">Gross Revenue</div><div class="h6 text-success">@Model.GrossRevenue.ToString("N2") BDT</div></div>
+            <div class="col-md-3"><div class="small text-muted">Gross Expense</div><div class="h6 text-danger">@Model.GrossExpense.ToString("N2") BDT</div></div>
+            <div class="col-md-3"><div class="small text-muted">Total Capital</div><div class="h6">@Model.TotalCapital.ToString("N2") BDT</div></div>
+            <div class="col-md-3"><div class="small text-muted">Total Labor Value</div><div class="h6">@Model.TotalLaborValue.ToString("N2") BDT</div></div>
+
+            <div class="col-12">
+                <div class="alert @(Model.NetPL >= 0 ? "alert-success" : "alert-warning") py-2 mb-0">
+                    <strong>Net P/L:</strong> @Model.NetPL.ToString("N2") BDT
+                    @if (Model.NetPL > 0) { <span class="ms-2">— Profit distributed by partner profit %.</span> }
+                    else if (Model.NetPL < 0) { <span class="ms-2">— Loss distributed by partner loss %; labor-only partners exempt.</span> }
+                    else { <span class="ms-2">— Break-even; only capital is returned.</span> }
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="small text-muted">Closed By</div>
+                <div>@(Model.ClosedByUserName ?? "system")</div>
+            </div>
+            <div class="col-md-6">
+                <div class="small text-muted">Checksum (SHA256)</div>
+                <code class="small text-break">@Model.Checksum</code>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-header"><strong>Per-Partner Breakdown</strong></div>
+    <div class="card-body p-0">
+        <table class="table mb-0 align-middle">
+            <thead class="table-light small">
+                <tr>
+                    <th>Partner</th>
+                    <th>Contact</th>
+                    <th>Contract</th>
+                    <th>Role</th>
+                    <th class="text-end">Profit %</th>
+                    <th class="text-end">Loss %</th>
+                    <th class="text-end">Capital</th>
+                    <th class="text-end">Labor Value</th>
+                    <th class="text-end">+ Profit</th>
+                    <th class="text-end">− Loss</th>
+                    <th class="text-end">Settlement</th>
+                    <th class="text-end">Zakat Base</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var d in Model.PartnerDetails.OrderBy(d => d.PartnerName))
+                {
+                    <tr>
+                        <td>
+                            <div class="fw-medium">@d.PartnerName</div>
+                            @if (!string.IsNullOrEmpty(d.PartnerNid))
+                            {
+                                <div class="small text-muted">NID: @d.PartnerNid</div>
+                            }
+                        </td>
+                        <td class="small text-muted">
+                            @if (!string.IsNullOrEmpty(d.PartnerPhone)) { <div>@d.PartnerPhone</div> }
+                            @if (!string.IsNullOrEmpty(d.PartnerEmail)) { <div>@d.PartnerEmail</div> }
+                        </td>
+                        <td><span class="badge text-bg-info">@d.ContractTypeAtClose</span></td>
+                        <td><span class="badge text-bg-light text-dark">@d.PartnerRoleAtClose</span></td>
+                        <td class="text-end">@d.ProfitSharePercent.ToString("0.##")%</td>
+                        <td class="text-end">@d.LossSharePercent.ToString("0.##")%</td>
+                        <td class="text-end">@d.CapitalContributed.ToString("N2")</td>
+                        <td class="text-end">@d.LaborValueContributed.ToString("N2")</td>
+                        <td class="text-end text-success">@d.ProfitShareAmount.ToString("N2")</td>
+                        <td class="text-end text-danger">@d.LossShareAmount.ToString("N2")</td>
+                        <td class="text-end fw-bold @(d.FinalSettlementAmount >= 0 ? "text-success" : "text-danger")">@d.FinalSettlementAmount.ToString("N2")</td>
+                        <td class="text-end small text-muted">@d.ZakatEligibleAmount.ToString("N2")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer small text-muted">
+        Settlement = Capital + Profit Share − Loss Share − Withdrawals. Negative settlement means the partner owes back to the pool (rare; happens when losses exceed capital + profit).
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header"><strong>Payouts</strong></div>
+    <div class="card-body p-0">
+        @if (!payouts.Any())
+        {
+            <div class="text-muted text-center py-3">No positive settlements to pay out.</div>
+        }
+        else
+        {
+            <table class="table mb-0 align-middle">
+                <thead class="table-light small">
+                    <tr>
+                        <th>Partner</th>
+                        <th class="text-end">Amount</th>
+                        <th>Status</th>
+                        <th>Method</th>
+                        <th>Reference</th>
+                        <th>Paid At</th>
+                        <th style="width:140px">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var p in payouts)
+                    {
+                        var d = Model.PartnerDetails.FirstOrDefault(x => x.Id == p.PartnerDetailId);
+                        <tr>
+                            <td class="fw-medium">@(d?.PartnerName ?? p.PartnerId.ToString())</td>
+                            <td class="text-end fw-bold">@p.Amount.ToString("N2")</td>
+                            <td>
+                                @switch (p.PaymentStatus)
+                                {
+                                    case PayoutStatus.Pending: <span class="badge text-bg-warning">Pending</span> break;
+                                    case PayoutStatus.Paid:    <span class="badge text-bg-success">Paid</span> break;
+                                    case PayoutStatus.Failed:  <span class="badge text-bg-danger">Failed</span> break;
+                                }
+                            </td>
+                            <td class="small">@p.PaymentMethod</td>
+                            <td class="small text-muted">@(p.ReferenceNo ?? "—")</td>
+                            <td class="small text-muted">@(p.PaidAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                            <td>
+                                @if (p.PaymentStatus == PayoutStatus.Pending)
+                                {
+                                    <button type="button" class="btn btn-sm btn-success" data-bs-toggle="collapse" data-bs-target="#pay-@p.Id">
+                                        <i class="bi bi-cash"></i> Mark Paid
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                        @if (p.PaymentStatus == PayoutStatus.Pending)
+                        {
+                            <tr class="collapse" id="pay-@p.Id">
+                                <td colspan="7">
+                                    <form method="post" action="/investpro/admin/investments/@Model.InvestmentId/snapshot/@Model.Id/payouts/@p.Id/pay" class="row g-2">
+                                        @Html.AntiForgeryToken()
+                                        <div class="col-md-3">
+                                            <select name="PaymentMethod" class="form-select form-select-sm">
+                                                @foreach (var m in Enum.GetValues<PaymentMethod>())
+                                                {
+                                                    <option value="@m">@m</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <input type="text" name="ReferenceNo" class="form-control form-control-sm" placeholder="Transaction reference" />
+                                        </div>
+                                        <div class="col-md-3">
+                                            <input type="text" name="Notes" class="form-control form-control-sm" placeholder="Notes (optional)" />
+                                        </div>
+                                        <div class="col-md-2 d-grid">
+                                            <button type="submit" class="btn btn-sm btn-primary">Confirm Paid</button>
+                                        </div>
+                                    </form>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>

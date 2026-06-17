@@ -171,6 +171,11 @@ public class InvestProModule : BaseModule
 
         new(InvestProPermissions.ApprovalViewKey,          "View approval requests",       "InvestPro"),
         new(InvestProPermissions.ApprovalDecideKey,        "Approve or reject requests",   "InvestPro"),
+
+        new(InvestProPermissions.CloseRequestKey,          "Request investment close",     "InvestPro"),
+        new(InvestProPermissions.CloseDecideKey,           "Approve / reject a close",     "InvestPro"),
+        new(InvestProPermissions.SnapshotViewKey,          "View closure snapshots",       "InvestPro"),
+        new(InvestProPermissions.PayoutManageKey,          "Manage payouts (mark paid)",   "InvestPro"),
     ];
 }
 
@@ -201,6 +206,11 @@ public static class InvestProPermissions
     public const string ApprovalViewKey   = "approval.view";
     public const string ApprovalDecideKey = "approval.decide";
 
+    public const string CloseRequestKey  = "close.request";
+    public const string CloseDecideKey   = "close.decide";
+    public const string SnapshotViewKey  = "snapshot.view";
+    public const string PayoutManageKey  = "payout.manage";
+
     private const string P = "flexcms.investpro.";
 
     public const string PartnerView   = P + PartnerViewKey;
@@ -227,4 +237,9 @@ public static class InvestProPermissions
 
     public const string ApprovalView   = P + ApprovalViewKey;
     public const string ApprovalDecide = P + ApprovalDecideKey;
+
+    public const string CloseRequest  = P + CloseRequestKey;
+    public const string CloseDecide   = P + CloseDecideKey;
+    public const string SnapshotView  = P + SnapshotViewKey;
+    public const string PayoutManage  = P + PayoutManageKey;
 }

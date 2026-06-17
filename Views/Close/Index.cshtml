@@ -1,0 +1,135 @@
+@model List<CloseRequest>
+@{
+    var inv = ViewData["Investment"] as Investment;
+    var contracts = ViewData["Contracts"] as List<InvestmentPartner> ?? new();
+    ViewData["Title"] = $"Close — {inv?.Code}";
+    Layout = "_InvestProLayout";
+    var current = Model.FirstOrDefault(r => r.RequestStatus == CloseRequestStatus.Pending);
+    var canRequest = inv?.LifecycleStatus == InvestmentLifecycle.Active && current is null;
+}
+
+<div class="d-flex align-items-center mb-3 gap-2">
+    <a href="/investpro/admin/investments/@inv!.Id" class="btn btn-sm btn-outline-secondary">← Investment</a>
+    <h4 class="mb-0">Close — @inv.Code <span class="text-muted fw-normal">@inv.Name</span></h4>
+</div>
+
+@if (TempData["Success"] is string ok) { <div class="alert alert-success py-2">@ok</div> }
+@if (TempData["Error"]   is string er) { <div class="alert alert-danger py-2">@er</div> }
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <div class="small text-muted">Lifecycle</div>
+        <div>
+            @switch (inv.LifecycleStatus)
+            {
+                case InvestmentLifecycle.Draft:   <span class="badge text-bg-secondary">Draft</span> break;
+                case InvestmentLifecycle.Active:  <span class="badge text-bg-success">Active</span> break;
+                case InvestmentLifecycle.Closing: <span class="badge text-bg-warning">Closing</span> break;
+                case InvestmentLifecycle.Closed:  <span class="badge text-bg-dark">Closed</span> break;
+            }
+        </div>
+    </div>
+</div>
+
+@if (canRequest)
+{
+    <div class="card shadow-sm mb-3">
+        <div class="card-header"><strong>Request Close</strong></div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">Starting a close request moves the investment to <strong>Closing</strong> and notifies every partner. Once <strong>all partners</strong> approve, the investment becomes <strong>Closed</strong> and a snapshot is generated. If any partner rejects, the investment returns to Active.</p>
+            <form method="post" action="/investpro/admin/investments/@inv.Id/close/request">
+                @Html.AntiForgeryToken()
+                <div class="mb-3">
+                    <label class="form-label">Notes</label>
+                    <textarea name="notes" class="form-control" rows="2" placeholder="Optional context for partners"></textarea>
+                </div>
+                <button type="submit" class="btn btn-warning"><i class="bi bi-flag"></i> Request Close</button>
+            </form>
+        </div>
+    </div>
+}
+
+@if (current is not null)
+{
+    <div class="card shadow-sm mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>Pending Close Request</strong>
+            <span class="small text-muted">Initiated: @current.InitiatedAt.ToString("yyyy-MM-dd HH:mm")</span>
+        </div>
+        <div class="card-body p-0">
+            <table class="table mb-0 align-middle">
+                <thead class="table-light small">
+                    <tr>
+                        <th>Partner</th>
+                        <th style="width:140px">Decision</th>
+                        <th>Comment</th>
+                        <th style="width:160px">Decided At</th>
+                        <th style="width:200px">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in current.Approvals)
+                    {
+                        var contract = contracts.FirstOrDefault(c => c.PartnerId == a.PartnerId);
+                        var pname = contract?.Partner?.Name ?? a.PartnerId.ToString();
+                        <tr>
+                            <td class="fw-medium">@pname</td>
+                            <td>
+                                @switch (a.Decision)
+                                {
+                                    case DecisionKind.Approved: <span class="badge text-bg-success">Approved</span> break;
+                                    case DecisionKind.Rejected: <span class="badge text-bg-danger">Rejected</span> break;
+                                    default: <span class="badge text-bg-warning">Pending</span> break;
+                                }
+                            </td>
+                            <td class="small text-muted">@(a.Comment ?? "")</td>
+                            <td class="small text-muted">@(a.DecidedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                            <td>
+                                @if (a.Decision == DecisionKind.Pending)
+                                {
+                                    <form method="post" action="/investpro/admin/investments/@inv.Id/close/@current.Id/decide" class="d-flex gap-1">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="PartnerId" value="@a.PartnerId" />
+                                        <button type="submit" name="Decision" value="Approved" class="btn btn-sm btn-success">Approve</button>
+                                        <button type="submit" name="Decision" value="Rejected" class="btn btn-sm btn-outline-danger">Reject</button>
+                                    </form>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@if (Model.Any(r => r.RequestStatus != CloseRequestStatus.Pending))
+{
+    <div class="card shadow-sm">
+        <div class="card-header"><strong>Past Requests</strong></div>
+        <div class="card-body p-0">
+            <table class="table mb-0 align-middle">
+                <thead class="table-light small">
+                    <tr><th>Initiated</th><th>Status</th><th>Finalised</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in Model.Where(x => x.RequestStatus != CloseRequestStatus.Pending))
+                    {
+                        <tr>
+                            <td class="small text-muted">@r.InitiatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>
+                                @switch (r.RequestStatus)
+                                {
+                                    case CloseRequestStatus.Approved:  <span class="badge text-bg-success">Approved</span> break;
+                                    case CloseRequestStatus.Rejected:  <span class="badge text-bg-danger">Rejected</span> break;
+                                    case CloseRequestStatus.Cancelled: <span class="badge text-bg-secondary">Cancelled</span> break;
+                                }
+                            </td>
+                            <td class="small text-muted">@(r.FinalizedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}

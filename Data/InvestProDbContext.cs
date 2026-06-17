@@ -22,6 +22,11 @@ public class InvestProDbContext : DbContext
     public DbSet<LedgerAttachment> LedgerAttachments => Set<LedgerAttachment>();
     public DbSet<ApprovalRequest> ApprovalRequests => Set<ApprovalRequest>();
     public DbSet<ApprovalDecision> ApprovalDecisions => Set<ApprovalDecision>();
+    public DbSet<CloseRequest> CloseRequests => Set<CloseRequest>();
+    public DbSet<CloseApproval> CloseApprovals => Set<CloseApproval>();
+    public DbSet<InvestmentSnapshot> InvestmentSnapshots => Set<InvestmentSnapshot>();
+    public DbSet<SnapshotPartnerDetail> SnapshotPartnerDetails => Set<SnapshotPartnerDetail>();
+    public DbSet<Payout> Payouts => Set<Payout>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -203,6 +208,66 @@ public class InvestProDbContext : DbContext
             e.Property(x => x.Comment).HasMaxLength(1000);
             e.HasIndex(x => x.ApprovalRequestId);
             e.HasOne(x => x.Request!).WithMany(r => r.Decisions).HasForeignKey(x => x.ApprovalRequestId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CloseRequest>(e =>
+        {
+            e.Property(x => x.RequestStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.Notes).HasMaxLength(2000);
+            e.HasIndex(x => x.InvestmentId);
+            e.HasIndex(x => x.RequestStatus);
+        });
+
+        modelBuilder.Entity<CloseApproval>(e =>
+        {
+            e.Property(x => x.Decision).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.Comment).HasMaxLength(1000);
+            e.HasOne(x => x.CloseRequest!).WithMany(r => r.Approvals).HasForeignKey(x => x.CloseRequestId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<InvestmentSnapshot>(e =>
+        {
+            e.Property(x => x.InvestmentCode).HasMaxLength(40).IsRequired();
+            e.Property(x => x.InvestmentName).HasMaxLength(200).IsRequired();
+            e.Property(x => x.GrossRevenue).HasColumnType("numeric(18,2)");
+            e.Property(x => x.GrossExpense).HasColumnType("numeric(18,2)");
+            e.Property(x => x.NetPL).HasColumnType("numeric(18,2)");
+            e.Property(x => x.TotalCapital).HasColumnType("numeric(18,2)");
+            e.Property(x => x.TotalLaborValue).HasColumnType("numeric(18,2)");
+            e.Property(x => x.Checksum).HasMaxLength(64).IsRequired();
+            e.Property(x => x.ClosedByUserName).HasMaxLength(200);
+            e.HasIndex(x => x.InvestmentId).IsUnique();
+        });
+
+        modelBuilder.Entity<SnapshotPartnerDetail>(e =>
+        {
+            e.Property(x => x.PartnerName).HasMaxLength(200).IsRequired();
+            e.Property(x => x.PartnerNid).HasMaxLength(50);
+            e.Property(x => x.PartnerPhone).HasMaxLength(30);
+            e.Property(x => x.PartnerEmail).HasMaxLength(200);
+            e.Property(x => x.ContractTypeAtClose).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.PartnerRoleAtClose).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.CapitalContributed).HasColumnType("numeric(18,2)");
+            e.Property(x => x.LaborValueContributed).HasColumnType("numeric(18,2)");
+            e.Property(x => x.ProfitSharePercent).HasColumnType("numeric(7,4)");
+            e.Property(x => x.LossSharePercent).HasColumnType("numeric(7,4)");
+            e.Property(x => x.ProfitShareAmount).HasColumnType("numeric(18,2)");
+            e.Property(x => x.LossShareAmount).HasColumnType("numeric(18,2)");
+            e.Property(x => x.WithdrawalsDuringInvestment).HasColumnType("numeric(18,2)");
+            e.Property(x => x.FinalSettlementAmount).HasColumnType("numeric(18,2)");
+            e.Property(x => x.ZakatEligibleAmount).HasColumnType("numeric(18,2)");
+            e.HasIndex(x => new { x.SnapshotId, x.PartnerId }).IsUnique();
+            e.HasOne(x => x.Snapshot!).WithMany(s => s.PartnerDetails).HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Payout>(e =>
+        {
+            e.Property(x => x.Amount).HasColumnType("numeric(18,2)");
+            e.Property(x => x.PaymentMethod).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.PaymentStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
+            e.Property(x => x.ReferenceNo).HasMaxLength(100);
+            e.Property(x => x.Notes).HasMaxLength(1000);
+            e.HasIndex(x => x.SnapshotId);
         });
     }
 
@@ -479,4 +544,108 @@ public class ApprovalDecision : BaseEfEntity
     public DecisionKind Decision { get; set; } = DecisionKind.Pending;
     public DateTime? DecidedAt { get; set; }
     public string? Comment { get; set; }
+}
+
+public enum CloseRequestStatus
+{
+    Pending   = 1,
+    Approved  = 2,
+    Rejected  = 3,
+    Cancelled = 4,
+}
+
+public enum PayoutStatus
+{
+    Pending = 1,
+    Paid    = 2,
+    Failed  = 3,
+}
+
+public class CloseRequest : BaseEfEntity
+{
+    public Guid InvestmentId { get; set; }
+    public Guid InitiatedByUserId { get; set; }
+    public DateTime InitiatedAt { get; set; }
+    public CloseRequestStatus RequestStatus { get; set; } = CloseRequestStatus.Pending;
+    public DateTime? FinalizedAt { get; set; }
+    public string? Notes { get; set; }
+
+    public List<CloseApproval> Approvals { get; set; } = [];
+}
+
+public class CloseApproval : BaseEfEntity
+{
+    public Guid CloseRequestId { get; set; }
+    public CloseRequest? CloseRequest { get; set; }
+
+    public Guid PartnerId { get; set; }
+    public DecisionKind Decision { get; set; } = DecisionKind.Pending;
+    public DateTime? DecidedAt { get; set; }
+    public string? Comment { get; set; }
+}
+
+public class InvestmentSnapshot : BaseEfEntity
+{
+    public Guid InvestmentId { get; set; }
+    public string InvestmentCode { get; set; } = "";
+    public string InvestmentName { get; set; } = "";
+    public DateTime InvestmentStartDate { get; set; }
+    public DateTime ClosedAt { get; set; }
+    public Guid? ClosedByUserId { get; set; }
+    public string? ClosedByUserName { get; set; }
+
+    public decimal GrossRevenue { get; set; }
+    public decimal GrossExpense { get; set; }
+    public decimal NetPL { get; set; }
+    public decimal TotalCapital { get; set; }
+    public decimal TotalLaborValue { get; set; }
+    public int PartnerCount { get; set; }
+
+    /// <summary>SHA256 hex of the snapshot + its partner details (in canonical order). Recomputed and compared on read for tamper detection.</summary>
+    public string Checksum { get; set; } = "";
+
+    public List<SnapshotPartnerDetail> PartnerDetails { get; set; } = [];
+}
+
+public class SnapshotPartnerDetail : BaseEfEntity
+{
+    public Guid SnapshotId { get; set; }
+    public InvestmentSnapshot? Snapshot { get; set; }
+
+    public Guid PartnerId { get; set; }
+
+    // ── Identity at-close (immutable copies) ────────────────────────────
+    // Partner row in the global pool can be edited / soft-deleted later —
+    // these fields freeze who-was-who when the investment was closed.
+    public string PartnerName { get; set; } = "";
+    public string? PartnerNid { get; set; }
+    public string? PartnerPhone { get; set; }
+    public string? PartnerEmail { get; set; }
+
+    public ContractType ContractTypeAtClose { get; set; }
+    public PartnerRole PartnerRoleAtClose { get; set; }
+
+    public decimal CapitalContributed { get; set; }
+    public decimal LaborValueContributed { get; set; }
+    public decimal ProfitSharePercent { get; set; }
+    public decimal LossSharePercent { get; set; }
+    public decimal ProfitShareAmount { get; set; }
+    public decimal LossShareAmount { get; set; }
+    public decimal WithdrawalsDuringInvestment { get; set; }
+    public decimal FinalSettlementAmount { get; set; }
+    public decimal ZakatEligibleAmount { get; set; }
+}
+
+public class Payout : BaseEfEntity
+{
+    public Guid SnapshotId { get; set; }
+    public Guid PartnerDetailId { get; set; }
+    public Guid InvestmentId { get; set; }
+    public Guid PartnerId { get; set; }
+    public decimal Amount { get; set; }
+    public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.Cash;
+    public PayoutStatus PaymentStatus { get; set; } = PayoutStatus.Pending;
+    public DateTime? PaidAt { get; set; }
+    public string? ReferenceNo { get; set; }
+    public string? Notes { get; set; }
 }

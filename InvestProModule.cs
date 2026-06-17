@@ -186,40 +186,47 @@ public class InvestProModule : BaseModule
 
 public static class InvestProPermissions
 {
-    public const string PartnerViewKey   = "partner.view";
-    public const string PartnerCreateKey = "partner.create";
-    public const string PartnerEditKey   = "partner.edit";
-    public const string PartnerDeleteKey = "partner.delete";
+    // ── Short keys ──
+    // Only used inside this assembly to register defs in GetPermissions().
+    // Controllers and external callers MUST use the fully-qualified consts
+    // below (e.g. PartnerView, PartnerCreate). Marking these `internal`
+    // makes the compiler refuse short-string [FcmsAuthorize] uses from
+    // outside the module — that would bypass the module-prefix and check
+    // for the wrong permission row in fcms_permissions.
+    internal const string PartnerViewKey   = "partner.view";
+    internal const string PartnerCreateKey = "partner.create";
+    internal const string PartnerEditKey   = "partner.edit";
+    internal const string PartnerDeleteKey = "partner.delete";
 
-    public const string CategoryViewKey   = "category.view";
-    public const string CategoryCreateKey = "category.create";
-    public const string CategoryEditKey   = "category.edit";
-    public const string CategoryDeleteKey = "category.delete";
+    internal const string CategoryViewKey   = "category.view";
+    internal const string CategoryCreateKey = "category.create";
+    internal const string CategoryEditKey   = "category.edit";
+    internal const string CategoryDeleteKey = "category.delete";
 
-    public const string ApprovalConfigViewKey = "approval-config.view";
-    public const string ApprovalConfigEditKey = "approval-config.edit";
+    internal const string ApprovalConfigViewKey = "approval-config.view";
+    internal const string ApprovalConfigEditKey = "approval-config.edit";
 
-    public const string InvestmentViewKey     = "investment.view";
-    public const string InvestmentCreateKey   = "investment.create";
-    public const string InvestmentEditKey     = "investment.edit";
-    public const string InvestmentDeleteKey   = "investment.delete";
-    public const string InvestmentActivateKey = "investment.activate";
+    internal const string InvestmentViewKey     = "investment.view";
+    internal const string InvestmentCreateKey   = "investment.create";
+    internal const string InvestmentEditKey     = "investment.edit";
+    internal const string InvestmentDeleteKey   = "investment.delete";
+    internal const string InvestmentActivateKey = "investment.activate";
 
-    public const string LedgerViewKey  = "ledger.view";
-    public const string LedgerWriteKey = "ledger.write";
+    internal const string LedgerViewKey  = "ledger.view";
+    internal const string LedgerWriteKey = "ledger.write";
 
-    public const string ApprovalViewKey   = "approval.view";
-    public const string ApprovalDecideKey = "approval.decide";
+    internal const string ApprovalViewKey   = "approval.view";
+    internal const string ApprovalDecideKey = "approval.decide";
 
-    public const string CloseRequestKey  = "close.request";
-    public const string CloseDecideKey   = "close.decide";
-    public const string SnapshotViewKey  = "snapshot.view";
-    public const string PayoutManageKey  = "payout.manage";
+    internal const string CloseRequestKey  = "close.request";
+    internal const string CloseDecideKey   = "close.decide";
+    internal const string SnapshotViewKey  = "snapshot.view";
+    internal const string PayoutManageKey  = "payout.manage";
 
-    public const string ReportViewKey    = "report.view";
+    internal const string ReportViewKey    = "report.view";
 
-    public const string ReopenRequestKey = "reopen.request";
-    public const string ReopenDecideKey  = "reopen.decide";
+    internal const string ReopenRequestKey = "reopen.request";
+    internal const string ReopenDecideKey  = "reopen.decide";
 
     private const string P = "flexcms.investpro.";
 
